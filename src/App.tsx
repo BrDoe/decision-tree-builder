@@ -78,9 +78,18 @@ function renderAsciiTree(nodes: Node[]): string {
     const childPrefix = prefix + (isLast ? "   " : "│  ");
     out.push(childPrefix + "│");
 
-    node.children.forEach((child, idx) => {
-      render(child, childPrefix, idx === node.children.length - 1);
-    });
+  for (let idx = 0; idx < node.children.length; idx++) {
+    const child = node.children[idx];
+    const childIsLast = idx === node.children.length - 1;
+
+    render(child, childPrefix, childIsLast);
+
+    // ВЕРТИКАЛЬНЫЙ СПЕЙСЕР между sibling-ветками на одном уровне:
+    // добавляем "воздух" и сохраняем вертикальную линию (│) по префиксу.
+    if (!childIsLast) {
+      out.push(childPrefix + "│");
+    }
+  }
   };
 
   nodes.forEach((root, idx) => {
