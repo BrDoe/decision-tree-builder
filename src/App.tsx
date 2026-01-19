@@ -1,5 +1,5 @@
 // src/App.tsx
-import { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 type Node = {
   text: string;
@@ -78,18 +78,17 @@ function renderAsciiTree(nodes: Node[]): string {
     const childPrefix = prefix + (isLast ? "   " : "│  ");
     out.push(childPrefix + "│");
 
-  for (let idx = 0; idx < node.children.length; idx++) {
-    const child = node.children[idx];
-    const childIsLast = idx === node.children.length - 1;
+    // spacer with line between sibling branches
+    for (let idx = 0; idx < node.children.length; idx++) {
+      const child = node.children[idx];
+      const childIsLast = idx === node.children.length - 1;
 
-    render(child, childPrefix, childIsLast);
+      render(child, childPrefix, childIsLast);
 
-    // ВЕРТИКАЛЬНЫЙ СПЕЙСЕР между sibling-ветками на одном уровне:
-    // добавляем "воздух" и сохраняем вертикальную линию (│) по префиксу.
-    if (!childIsLast) {
-      out.push(childPrefix + "│");
+      if (!childIsLast) {
+        out.push(childPrefix + "│");
+      }
     }
-  }
   };
 
   nodes.forEach((root, idx) => {
@@ -281,10 +280,6 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-/**
- * Экспорт SVG->PNG и сохранение на диск.
- * Важно: поддерживается на GitHub Pages (https).
- */
 async function exportSvgAsPng(svgEl: SVGSVGElement, outW: number, outH: number, filename: string) {
   const clone = svgEl.cloneNode(true) as SVGSVGElement;
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
@@ -310,7 +305,6 @@ async function exportSvgAsPng(svgEl: SVGSVGElement, outW: number, outH: number, 
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("canvas ctx is null");
 
-        // белый фон
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
@@ -336,16 +330,33 @@ async function exportSvgAsPng(svgEl: SVGSVGElement, outW: number, outH: number, 
 }
 
 export default function App() {
-  // ВАЖНО: одинаковая высота контентных областей для всех 3 колонок
-  // Также выравниваем “шапки” (заголовок+кнопка) одинаковой высотой.
+  // Single source of truth for vertical alignment
   const CONTENT_HEIGHT = 660;
   const HEADER_HEIGHT = 36;
+  const FOOTER_HEIGHT = 18;
+  const ROW_GAP = 6;
+
+  const COLUMN_STYLE: React.CSSProperties = {
+    display: "grid",
+    gridTemplateRows: `${HEADER_HEIGHT}px ${CONTENT_HEIGHT}px ${FOOTER_HEIGHT}px`,
+    rowGap: ROW_GAP,
+    minWidth: 0,
+  };
+
+  const FOOTER_STYLE: React.CSSProperties = {
+    height: FOOTER_HEIGHT,
+    color: "#555",
+    fontSize: 12,
+    lineHeight: `${FOOTER_HEIGHT}px`,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+  };
 
   const [input, setInput] = useState(DEFAULT_INPUT);
   const [wrap, setWrap] = useState(true);
   const [lang, setLang] = useState("java");
 
-  // Zoom + Pan
   const [zoom, setZoom] = useState(1);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
@@ -353,7 +364,6 @@ export default function App() {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number; px: number; py: number } | null>(null);
 
-  // Держим ref на SVG, чтобы сохранить на диск
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const parsed = useMemo(() => parseIndentedTree(input, 2), [input]);
@@ -369,12 +379,32 @@ export default function App() {
     return m;
   }, [layout.positioned]);
 
-  const zoomIn = () => setZoom((z) => clamp(Number((z * 1.15).toFixed(3)), 0.4, 3));
-  const zoomOut = () => setZoom((z) => clamp(Number((z / 1.15).toFixed(3)), 0.4, 3));
+  const zoomIn = () => setZoom((z) => clamp(Number((z * 1.15).toFixed(3)), 0.4, 5));
+  const zoomOut = () => setZoom((z) => clamp(Number((z / 1.15).toFixed(3)), 0.4, 5));
   const resetView = () => {
     setZoom(1);
     setPanX(0);
     setPanY(0);
+  };
+
+  const onGraphWheel: React.WheelEventHandler<HTMLDivElement> = (e) => {
+    e.preventDefault();
+
+    // Нормализуем delta: для мыши обычно ~100, для трекпада 1..20
+    const dy = e.deltaY;
+
+    // Переводим dy в "интенсивность" 0..1 (мягкая кривая)
+    // 60 — эмпирически комфортная шкала: меньше = более чувствительно, больше = более плавно
+    const intensity = Math.min(1, Math.abs(dy) / 60);
+
+    // Базовый шаг + добавка по интенсивности
+    // Итоговый step в диапазоне ~0.01 .. 0.06
+    const step = 0.01 + intensity * 0.05;
+
+    // dy > 0 = wheel down => zoom out
+    const next = dy > 0 ? 1 - step : 1 + step;
+
+    setZoom((z) => clamp(Number((z * next).toFixed(4)), 0.4, 5));
   };
 
   const saveGraphPng = async () => {
@@ -384,7 +414,6 @@ export default function App() {
         return;
       }
       const filename = `decision-tree-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
-      // Экспортируем “виртуальное полотно” layout.width/height (а не размер viewport)
       await exportSvgAsPng(svgRef.current, layout.width, layout.height, filename);
     } catch (e: any) {
       console.error(e);
@@ -396,7 +425,6 @@ export default function App() {
     <div
       style={{
         height: HEADER_HEIGHT,
-        marginBottom: 6,
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -408,15 +436,30 @@ export default function App() {
     </div>
   );
 
+  const Header3 = (props: { title: string; center?: React.ReactNode; right?: React.ReactNode }) => (
+  <div
+    style={{
+      height: HEADER_HEIGHT,
+      display: "grid",
+      gridTemplateColumns: "1fr auto 1fr",
+      alignItems: "center",
+      columnGap: 10,
+    }}
+  >
+    <div style={{ justifySelf: "start", fontWeight: 600 }}>{props.title}</div>
+    <div style={{ justifySelf: "center" }}>{props.center}</div>
+    <div style={{ justifySelf: "end" }}>{props.right}</div>
+  </div>
+);
+
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: 10, maxWidth: 1800, margin: "0 auto" }}>
+    <div style={{ fontFamily: "system-ui, sans-serif", padding: 10, maxWidth: 2000, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 8px" }}>Decision Tree Builder</h2>
 
-      {/* Общие настройки */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
         <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
-          Оборачивать в Jira {"{code}"}
+          Оборачивать в {"{code}"}
         </label>
 
         <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -429,7 +472,8 @@ export default function App() {
           />
         </label>
 
-        <div style={{ width: 10 }} />
+{/*Управление Zoom в верхней панели*/}
+{/*        <div style={{ width: 10 }} />
 
         <button onClick={zoomOut} style={{ padding: "6px 10px", cursor: "pointer" }}>
           −
@@ -444,13 +488,12 @@ export default function App() {
           Reset
         </button>
 
-        <div style={{ color: "#666", fontSize: 12 }}>Панорамирование: ЛКМ + drag по графику.</div>
+        <div style={{ color: "#666", fontSize: 12 }}>Панорамирование: ЛКМ + drag по графику.</div>*/}
       </div>
 
-      {/* 3 колонки */}
       <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1.15fr 2.2fr", gap: 12, alignItems: "start" }}>
         {/* INPUT */}
-        <div>
+        <div style={COLUMN_STYLE}>
           <Header
             title="Действия"
             right={
@@ -472,15 +515,16 @@ export default function App() {
               padding: 10,
               border: "1px solid #ccc",
               borderRadius: 8,
-              resize: "vertical",
+              resize: "none",
               boxSizing: "border-box",
             }}
           />
-          <div style={{ marginTop: 8, color: "#555", fontSize: 12 }}>Правило: 2 пробела = 1 уровень.</div>
+
+          <div style={FOOTER_STYLE}>Правило: 2 пробела = 1 уровень.</div>
         </div>
 
         {/* JIRA */}
-        <div>
+        <div style={COLUMN_STYLE}>
           <Header
             title="Код для Jira"
             right={
@@ -494,40 +538,72 @@ export default function App() {
             style={{
               width: "100%",
               height: CONTENT_HEIGHT,
-              overflow: "auto",
+
+              // вертикальная прокрутка нужна, горизонтальная — нет
+              overflowY: "auto",
+              overflowX: "hidden",
+
               background: "#fafafa",
               border: "1px solid #ccc",
               borderRadius: 8,
               padding: 10,
+
               fontFamily:
                 "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
               fontSize: 13,
-              whiteSpace: "pre",
+
+              // ключевое: разрешаем переносы, сохраняя пробелы/форматирование
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+
               margin: 0,
               color: "#111",
               boxSizing: "border-box",
+
+              // важно для grid: даём элементу реально ужиматься
+              minWidth: 0,
             }}
           >
             {jiraOut}
           </pre>
-          <div style={{ marginTop: 8, color: "#555", fontSize: 12 }}>
-            Вставляйте в Jira в code block (или используйте {"{code:...}"}).
-          </div>
+
+          <div style={FOOTER_STYLE}>Скопируйте и вставьте в комментарий Jira.</div>
         </div>
 
         {/* GRAPHIC */}
-        <div>
-          <Header
-            title="Графика"
-            right={
-              <button onClick={saveGraphPng} style={{ padding: "6px 10px", cursor: "pointer" }}>
-                Save PNG
-              </button>
-            }
-          />
+        <div style={COLUMN_STYLE}>
+          <Header3
+              title="Графика"
+              center={
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button onClick={zoomOut} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                    −
+                  </button>
 
-          {/* ВАЖНО: здесь тоже CONTENT_HEIGHT и boxSizing, чтобы высоты совпали пиксель-в-пиксель */}
+                  <div style={{ minWidth: 64, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+                    {Math.round(zoom * 100)}%
+                  </div>
+
+                  <button onClick={zoomIn} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                    +
+                  </button>
+
+                  <button onClick={resetView} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                    Reset
+                  </button>
+                </div>
+              }
+              right={
+                <button onClick={saveGraphPng} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                  Save
+                </button>
+              }
+            />
+
+
+
           <div
+            onWheel={onGraphWheel}
             onMouseDown={(e) => {
               setIsPanning(true);
               setPanStart({ x: e.clientX, y: e.clientY, px: panX, py: panY });
@@ -559,12 +635,11 @@ export default function App() {
               userSelect: "none",
               boxSizing: "border-box",
               display: "block",
+              touchAction: "none",
             }}
           >
             <svg
               ref={svgRef}
-              // ВАЖНО: делаем внутреннее SVG соответствующим “виртуальному полотну” для экспорта
-              // но отображение во viewport — через 100% + viewBox.
               width="100%"
               height="100%"
               viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -588,12 +663,9 @@ export default function App() {
                 </marker>
               </defs>
 
-              {/* белый фон */}
               <rect x={0} y={0} width={layout.width} height={layout.height} fill="white" />
 
-              {/* Рисуем внутри группы с pan/zoom */}
               <g transform={`translate(${panX}, ${panY}) scale(${zoom})`}>
-                {/* edges */}
                 {layout.positioned.flatMap((n) => {
                   if (!n.childrenIds.length) return [];
                   return n.childrenIds.map((cid) => {
@@ -622,7 +694,6 @@ export default function App() {
                   });
                 })}
 
-                {/* nodes */}
                 {layout.positioned.map((n) => {
                   const textX = n.x + 12;
                   const textY = n.y + 10 + 14;
@@ -659,9 +730,7 @@ export default function App() {
             </svg>
           </div>
 
-          <div style={{ marginTop: 8, color: "#555", fontSize: 12 }}>
-            Save PNG сохраняет текущее состояние (с pan/zoom). Панорамирование: ЛКМ + drag.
-          </div>
+          <div style={FOOTER_STYLE}>Сохраняет PNG как на экране (масштаб/смещение). Перемещение: зажмите ЛКМ и тяните.</div>
         </div>
       </div>
     </div>
