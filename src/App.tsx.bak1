@@ -1,0 +1,213 @@
+// src/App.tsx
+import { useMemo, useState } from "react";
+
+type Node = {
+  text: string;
+  children: Node[];
+};
+
+const DEFAULT_INPUT = `В запросе передан: manager
+  manager == null?
+    Нет
+      Используем переданное значение manager
+    Да
+      Пытаемся достать manager из statdb
+        Успешно (manager найден)
+          Установить/сохранить manager из statdb
+        Неуспешно (не найден / statdb недоступна / ошибка)
+          Обнулить manager у аккаунта`;
+
+function countLeadingSpaces(s: string): number {
+  let i = 0;
+  while (i < s.length && s[i] === " ") i++;
+  return i;
+}
+
+/**
+ * Парсер "инденты = уровни":
+ * - 2 пробела = 1 уровень (можно поменять в indentSize)
+ * - пустые строки игнорируем
+ */
+function parseIndentedTree(input: string, indentSize = 2): Node[] {
+  const lines = input
+    .replace(/\t/g, " ".repeat(indentSize)) // табы -> пробелы
+    .split("\n")
+    .map((l) => l.replace(/\s+$/g, "")) // trimRight
+    .filter((l) => l.trim().length > 0);
+
+  const root: Node = { text: "__ROOT__", children: [] };
+
+  // stack: [{ level, node }]
+  const stack: { level: number; node: Node }[] = [{ level: -1, node: root }];
+
+  for (const raw of lines) {
+    const lead = countLeadingSpaces(raw);
+    const level = Math.floor(lead / indentSize);
+    const text = raw.trim();
+
+    const node: Node = { text, children: [] };
+
+    // подняться до родителя нужного уровня
+    while (stack.length && stack[stack.length - 1].level >= level) {
+      stack.pop();
+    }
+    const parent = stack[stack.length - 1]?.node ?? root;
+    parent.children.push(node);
+    stack.push({ level, node });
+  }
+
+  return root.children;
+}
+
+/**
+ * Рендер в Unicode box-drawing (Jira-friendly), без “магии” для корня.
+ * - Корневые узлы печатаются как обычный текст (без ├─/└─)
+ * - Все остальные узлы печатаются единообразно через ├─/└─
+ * - Между узлом и его детьми вставляется “│” (как в Jira-примере)
+ */
+function renderAsciiTree(nodes: Node[]): string {
+  const out: string[] = [];
+
+  const render = (node: Node, prefix: string, isLast: boolean) => {
+    const connector = isLast ? "└─ " : "├─ ";
+    out.push(prefix + connector + node.text);
+
+    if (!node.children.length) return;
+
+    // Префикс для детей: продолжаем вертикаль, пока есть "соседи" ниже
+    const childPrefix = prefix + (isLast ? "   " : "│  ");
+
+    // Вставка разделительной вертикали
+    out.push(childPrefix + "│");
+
+    node.children.forEach((child, idx) => {
+      render(child, childPrefix, idx === node.children.length - 1);
+    });
+  };
+
+  // Верхний уровень (обычно один узел "СТАРТ") печатаем без коннектора
+  nodes.forEach((root, idx) => {
+    out.push(root.text);
+
+    if (root.children.length) {
+      out.push("│");
+      root.children.forEach((child, cidx) => {
+        render(child, "", cidx === root.children.length - 1);
+      });
+    }
+
+    // Если несколько корней — разделяем пустой строкой
+    if (idx !== nodes.length - 1) out.push("");
+  });
+
+  return out.join("\n");
+}
+
+function wrapForJira(code: string, language = "java"): string {
+  return `{code:${language}}\n${code}\n{code}`;
+}
+
+async function copyToClipboard(text: string) {
+  await navigator.clipboard.writeText(text);
+}
+
+export default function App() {
+  const [input, setInput] = useState(DEFAULT_INPUT);
+  const [wrap, setWrap] = useState(true);
+  const [lang, setLang] = useState("java");
+
+  const parsed = useMemo(() => parseIndentedTree(input, 2), [input]);
+  const ascii = useMemo(() => renderAsciiTree(parsed), [parsed]);
+  const output = useMemo(
+    () => (wrap ? wrapForJira(ascii, lang) : ascii),
+    [ascii, wrap, lang]
+  );
+
+  return (
+    <div
+      style={{
+        fontFamily: "system-ui, sans-serif",
+        padding: 16,
+        maxWidth: 1200,
+        margin: "0 0",
+      }}
+    >
+      <h1 style={{ margin: "0 0 20px"}}>Decision Tree Builder (Jira ASCII)</h1>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
+          Оборачивать в Jira {"{code}"}
+        </label>
+
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          Язык:
+          <input
+            value={lang}
+            onChange={(e) => setLang(e.target.value)}
+            style={{ width: 90, padding: "4px 6px" }}
+            disabled={!wrap}
+          />
+        </label>
+
+        <button
+          onClick={() => copyToClipboard(output)}
+          style={{ padding: "6px 10px", cursor: "pointer" }}
+          title="Скопировать результат"
+        >
+          Copy
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div>
+          <div style={{ marginBottom: 6, fontWeight: 600 }}>Ввод (отступы = уровни)</div>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            style={{
+              width: "100%",
+              height: 520,
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+              fontSize: 13,
+              padding: 10,
+              border: "1px solid #ccc",
+              borderRadius: 6,
+              resize: "vertical",
+            }}
+          />
+          <div style={{ marginTop: 8, color: "#555", fontSize: 12 }}>
+            Правило: 2 пробела = 1 уровень. Пустые строки игнорируются.
+          </div>
+        </div>
+
+        <div>
+          <div style={{ marginBottom: 6, fontWeight: 600 }}>Вывод (Jira-friendly)</div>
+          <pre
+            style={{
+              width: "100%",
+              height: 520,
+              overflow: "auto",
+              background: "#fafafa",
+              border: "1px solid #ccc",
+              borderRadius: 6,
+              padding: 10,
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+              fontSize: 13,
+              whiteSpace: "pre",
+              margin: 0,
+              color: "#111", // фикс “превью не видно” при темных глобальных стилях
+            }}
+          >
+            {output}
+          </pre>
+          <div style={{ marginTop: 8, color: "#555", fontSize: 12 }}>
+            Подсказка: вставляйте в Jira в code block или используйте обёртку {"{code:...}"}.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
