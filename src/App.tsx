@@ -473,7 +473,7 @@ export default function App() {
       await exportSvgAsPng(svgRef.current, layout.width, layout.height, filename);
     } catch (e: any) {
       console.error(e);
-      alert(`Не удалось сохранить PNG: ${e?.message ?? e}`);
+      alert(`Не удалось сохранить изображение: ${e?.message ?? e}`);
     }
   };
 
