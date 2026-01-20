@@ -40,7 +40,7 @@ function countLeadingSpaces(s: string): number {
 }
 
 function getLineIndentBeforeCursor(text: string, cursor: number): number {
-  const lineStart = text.lastIndexOf("\n", cursor - 1) + 1; // если \n нет, lastIndexOf вернет -1, +1 => 0
+  const lineStart = text.lastIndexOf("\n", cursor - 1) + 1;
   let i = lineStart;
   while (i < text.length && text[i] === " ") i++;
   return i - lineStart;
@@ -110,6 +110,59 @@ function renderAsciiTree(nodes: Node[]): string {
 
     if (idx !== nodes.length - 1) out.push("");
   });
+
+  return out.join("\n");
+}
+
+// Импорт из Jira ASCII (включая {code})
+
+function importJiraToIndented(raw: string, indentSize = 2): string {
+  const withoutCode = raw
+    .replace(/^\s*\{code(?::[^}]*)?\}\s*\n?/i, "")
+    .replace(/\n?\s*\{code\}\s*$/i, "");
+
+  const lines = withoutCode
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(/\s+$/g, "")); // trimRight
+
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.length === 0) {
+      out.push("");
+      continue;
+    }
+
+    // 1) Отбрасываем "рисовалку": строки, состоящие только из │ и пробелов
+    //    Примеры: "│", "│  │", "   │   ", "│  │  │"
+    if (/^[│\s]+$/.test(trimmed)) {
+      continue;
+    }
+
+    const idxA = line.indexOf("├─ ");
+    const idxB = line.indexOf("└─ ");
+    const idx = idxA >= 0 ? idxA : idxB;
+
+    // 2) Корневая строка (без маркеров)
+    if (idx < 0) {
+      out.push(trimmed);
+      continue;
+    }
+
+    const prefix = line.slice(0, idx);
+    const text = line.slice(idx + 3).trim();
+
+    // 3) В ASCII-префикс строится блоками по 3 символа: "│  " или "   "
+    //    Но "дети корня" имеют prefix.length === 0 и должны стать 1-м уровнем.
+    const level = Math.max(0, Math.floor(prefix.length / 3) + 1);
+
+    out.push(" ".repeat(level * indentSize) + text);
+  }
+
+  while (out.length && out[out.length - 1].trim() === "") out.pop();
 
   return out.join("\n");
 }
@@ -234,6 +287,7 @@ function layoutTreeForSvg(flat: FlatNode[]) {
     const h = heightById.get(n.id)!;
     maxHPerDepth[n.depth] = Math.max(maxHPerDepth[n.depth], h);
   }
+
   const yTopByDepth: number[] = [];
   let accY = 30;
   for (let d = 0; d <= maxDepth; d++) {
@@ -337,7 +391,6 @@ async function exportSvgAsPng(svgEl: SVGSVGElement, outW: number, outH: number, 
 }
 
 export default function App() {
-  // Single source of truth for vertical alignment
   const CONTENT_HEIGHT = 660;
   const HEADER_HEIGHT = 36;
   const FOOTER_HEIGHT = 36;
@@ -371,9 +424,12 @@ export default function App() {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number; px: number; py: number } | null>(null);
 
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  const parsed = useMemo(() => parseIndentedTree(input, 2), [input]);
+  const parsed = useMemo(() => parseIndentedTree(input, INDENT_SIZE), [input]);
   const ascii = useMemo(() => renderAsciiTree(parsed), [parsed]);
   const jiraOut = useMemo(() => (wrap ? wrapForJira(ascii, lang) : ascii), [ascii, wrap, lang]);
 
@@ -397,18 +453,9 @@ export default function App() {
   const onGraphWheel: React.WheelEventHandler<HTMLDivElement> = (e) => {
     e.preventDefault();
 
-    // Нормализуем delta: для мыши обычно ~100, для трекпада 1..20
     const dy = e.deltaY;
-
-    // Переводим dy в "интенсивность" 0..1 (мягкая кривая)
-    // 60 — эмпирически комфортная шкала: меньше = более чувствительно, больше = более плавно
     const intensity = Math.min(1, Math.abs(dy) / 60);
-
-    // Базовый шаг + добавка по интенсивности
-    // Итоговый step в диапазоне ~0.01 .. 0.06
     const step = 0.01 + intensity * 0.05;
-
-    // dy > 0 = wheel down => zoom out
     const next = dy > 0 ? 1 - step : 1 + step;
 
     setZoom((z) => clamp(Number((z * next).toFixed(4)), 0.4, 5));
@@ -428,6 +475,17 @@ export default function App() {
     }
   };
 
+  const runImport = () => {
+    const converted = importJiraToIndented(importText, INDENT_SIZE);
+    if (converted.trim().length === 0) {
+      alert("Не удалось распознать дерево. Проверьте, что вы вставили текст из Jira (можно с {code}).");
+      return;
+    }
+    setInput(converted);
+    setIsImportOpen(false);
+    setImportText("");
+  };
+
   const Header = (props: { title: string; right: React.ReactNode }) => (
     <div
       style={{
@@ -444,61 +502,56 @@ export default function App() {
   );
 
   const Header3 = (props: { title: string; center?: React.ReactNode; right?: React.ReactNode }) => (
-  <div
-    style={{
-      height: HEADER_HEIGHT,
-      display: "grid",
-      gridTemplateColumns: "1fr auto 1fr",
-      alignItems: "center",
-      columnGap: 10,
-    }}
-  >
-    <div style={{ justifySelf: "start", fontWeight: 600 }}>{props.title}</div>
-    <div style={{ justifySelf: "center" }}>{props.center}</div>
-    <div style={{ justifySelf: "end" }}>{props.right}</div>
-  </div>
-);
+    <div
+      style={{
+        height: HEADER_HEIGHT,
+        display: "grid",
+        gridTemplateColumns: "1fr auto 1fr",
+        alignItems: "center",
+        columnGap: 10,
+      }}
+    >
+      <div style={{ justifySelf: "start", fontWeight: 600 }}>{props.title}</div>
+      <div style={{ justifySelf: "center" }}>{props.center}</div>
+      <div style={{ justifySelf: "end" }}>{props.right}</div>
+    </div>
+  );
 
   const onInputKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
-  // Enter без автоотступа
-  if (e.key !== "Enter" || e.shiftKey) return;
+    if (e.key !== "Enter" || e.shiftKey) return;
+    // @ts-ignore
+    if ((e as any).isComposing) return;
 
-  // не ломаем IME
-  // @ts-ignore - isComposing есть в большинстве браузеров
-  if ((e as any).isComposing) return;
+    e.preventDefault();
 
-  e.preventDefault();
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? start;
 
-  const el = e.currentTarget;
-  const start = el.selectionStart ?? 0;
-  const end = el.selectionEnd ?? start;
+    const indent = getLineIndentBeforeCursor(input, start);
+    const insert = "\n" + " ".repeat(indent + INDENT_SIZE);
 
-  const indent = getLineIndentBeforeCursor(input, start);
-  const insert = "\n" + " ".repeat(indent + INDENT_SIZE);
+    const next = input.slice(0, start) + insert + input.slice(end);
+    setInput(next);
 
-  const next = input.slice(0, start) + insert + input.slice(end);
-
-  setInput(next);
-
-  // поставить курсор после вставленных пробелов
-  const nextPos = start + insert.length;
-  requestAnimationFrame(() => {
-    el.selectionStart = nextPos;
-    el.selectionEnd = nextPos;
-  });
-};
+    const nextPos = start + insert.length;
+    requestAnimationFrame(() => {
+      el.selectionStart = nextPos;
+      el.selectionEnd = nextPos;
+    });
+  };
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", padding: 10, maxWidth: 2000, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 8px" }}>Decision Tree Builder</h2>
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }} title="Добавляет обёртку {code:...} для Jira">
           <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
           Оборачивать в {"{code}"}
         </label>
 
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }} title="Язык для {code:LANG} (например java)">
           Язык:
           <input
             value={lang}
@@ -507,24 +560,6 @@ export default function App() {
             disabled={!wrap}
           />
         </label>
-
-{/*Управление Zoom в верхней панели*/}
-{/*        <div style={{ width: 10 }} />
-
-        <button onClick={zoomOut} style={{ padding: "6px 10px", cursor: "pointer" }}>
-          −
-        </button>
-        <div style={{ minWidth: 64, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
-          {Math.round(zoom * 100)}%
-        </div>
-        <button onClick={zoomIn} style={{ padding: "6px 10px", cursor: "pointer" }}>
-          +
-        </button>
-        <button onClick={resetView} style={{ padding: "6px 10px", cursor: "pointer" }}>
-          Reset
-        </button>
-
-        <div style={{ color: "#666", fontSize: 12 }}>Панорамирование: ЛКМ + drag по графику.</div>*/}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1.15fr 2.2fr", gap: 12, alignItems: "start" }}>
@@ -533,9 +568,26 @@ export default function App() {
           <Header
             title="Действия"
             right={
-              <button onClick={() => copyToClipboard(input)} style={{ padding: "6px 10px", cursor: "pointer" }}>
-                Copy
-              </button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  title="Конвертировать текст Jira в обычный текст с отступами"
+                  onClick={() => {
+                    setIsImportOpen(true);
+                    setImportText("");
+                  }}
+                  style={{ padding: "6px 10px", cursor: "pointer" }}
+                >
+                  Import Jira
+                </button>
+
+                <button
+                  title="Скопировать текст из поля Действия"
+                  onClick={() => copyToClipboard(input)}
+                  style={{ padding: "6px 10px", cursor: "pointer" }}
+                >
+                  Copy
+                </button>
+              </div>
             }
           />
 
@@ -557,8 +609,10 @@ export default function App() {
             }}
           />
 
-        <div style={FOOTER_STYLE}>Отступ: 2 пробела = 1 уровень.<br />
-            Enter — новый шаг на уровень ниже, Shift+Enter — обычный перенос.</div>
+          <div style={FOOTER_STYLE}>
+            Отступ 2 пробела = 1 уровень. Пустые строки игнорируются.<br />
+            Enter: новый шаг на уровень ниже, Shift+Enter: обычный перенос.
+          </div>
         </div>
 
         {/* JIRA */}
@@ -566,7 +620,11 @@ export default function App() {
           <Header
             title="Код для Jira"
             right={
-              <button onClick={() => copyToClipboard(jiraOut)} style={{ padding: "6px 10px", cursor: "pointer" }}>
+              <button
+                title="Скопировать готовый текст для Jira"
+                onClick={() => copyToClipboard(jiraOut)}
+                style={{ padding: "6px 10px", cursor: "pointer" }}
+              >
                 Copy
               </button>
             }
@@ -576,69 +634,58 @@ export default function App() {
             style={{
               width: "100%",
               height: CONTENT_HEIGHT,
-
-              // вертикальная прокрутка нужна, горизонтальная — нет
               overflowY: "auto",
               overflowX: "hidden",
-
               background: "#fafafa",
               border: "1px solid #ccc",
               borderRadius: 8,
               padding: 10,
-
               fontFamily:
                 "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
               fontSize: 13,
-
-              // ключевое: разрешаем переносы, сохраняя пробелы/форматирование
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
-
               margin: 0,
               color: "#111",
               boxSizing: "border-box",
-
-              // важно для grid: даём элементу реально ужиматься
               minWidth: 0,
             }}
           >
             {jiraOut}
           </pre>
 
-          <div style={FOOTER_STYLE}>Скопируйте и вставьте в комментарий Jira.</div>
+          <div style={FOOTER_STYLE}>Скопируйте и вставьте в комментарий Jira как Code Block.</div>
         </div>
 
         {/* GRAPHIC */}
         <div style={COLUMN_STYLE}>
           <Header3
-              title="Графика"
-              center={
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button onClick={zoomOut} style={{ padding: "6px 10px", cursor: "pointer" }}>
-                    −
-                  </button>
-
-                  <div style={{ minWidth: 64, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
-                    {Math.round(zoom * 100)}%
-                  </div>
-
-                  <button onClick={zoomIn} style={{ padding: "6px 10px", cursor: "pointer" }}>
-                    +
-                  </button>
-
-                  <button onClick={resetView} style={{ padding: "6px 10px", cursor: "pointer" }}>
-                    Reset
-                  </button>
-                </div>
-              }
-              right={
-                <button onClick={saveGraphPng} style={{ padding: "6px 10px", cursor: "pointer" }}>
-                  Save
+            title="Графика"
+            center={
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button title="Уменьшить масштаб" onClick={zoomOut} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                  −
                 </button>
-              }
-            />
 
+                <div title="Текущий масштаб" style={{ minWidth: 64, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+                  {Math.round(zoom * 100)}%
+                </div>
 
+                <button title="Увеличить масштаб" onClick={zoomIn} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                  +
+                </button>
+
+                <button title="Сбросить масштаб и смещение" onClick={resetView} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                  Reset
+                </button>
+              </div>
+            }
+            right={
+              <button title="Сохранить текущий вид схемы в PNG" onClick={saveGraphPng} style={{ padding: "6px 10px", cursor: "pointer" }}>
+                Save
+              </button>
+            }
+          />
 
           <div
             onWheel={onGraphWheel}
@@ -675,6 +722,7 @@ export default function App() {
               display: "block",
               touchAction: "none",
             }}
+            title="Колесо мыши — масштаб. Перемещение: зажмите ЛКМ и тяните."
           >
             <svg
               ref={svgRef}
@@ -688,15 +736,7 @@ export default function App() {
                 <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
                   <feDropShadow dx="0" dy="1" stdDeviation="1.2" floodOpacity="0.18" />
                 </filter>
-                <marker
-                  id="arrow"
-                  viewBox="0 0 10 10"
-                  refX="9"
-                  refY="5"
-                  markerWidth="6"
-                  markerHeight="6"
-                  orient="auto-start-reverse"
-                >
+                <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="black" />
                 </marker>
               </defs>
@@ -704,6 +744,7 @@ export default function App() {
               <rect x={0} y={0} width={layout.width} height={layout.height} fill="white" />
 
               <g transform={`translate(${panX}, ${panY}) scale(${zoom})`}>
+                {/* edges */}
                 {layout.positioned.flatMap((n) => {
                   if (!n.childrenIds.length) return [];
                   return n.childrenIds.map((cid) => {
@@ -719,36 +760,19 @@ export default function App() {
                     const d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
 
                     return (
-                      <path
-                        key={`${n.id}-${cid}`}
-                        d={d}
-                        fill="none"
-                        stroke="black"
-                        strokeWidth={1}
-                        markerEnd="url(#arrow)"
-                        opacity={0.9}
-                      />
+                      <path key={`${n.id}-${cid}`} d={d} fill="none" stroke="black" strokeWidth={1} markerEnd="url(#arrow)" opacity={0.9} />
                     );
                   });
                 })}
 
+                {/* nodes */}
                 {layout.positioned.map((n) => {
                   const textX = n.x + 12;
                   const textY = n.y + 10 + 14;
 
                   return (
                     <g key={n.id} filter="url(#shadow)" pointerEvents="none">
-                      <rect
-                        x={n.x}
-                        y={n.y}
-                        width={n.w}
-                        height={n.h}
-                        rx={10}
-                        ry={10}
-                        fill="white"
-                        stroke="black"
-                        strokeWidth={1}
-                      />
+                      <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={10} ry={10} fill="white" stroke="black" strokeWidth={1} />
                       <text
                         x={textX}
                         y={textY}
@@ -771,6 +795,153 @@ export default function App() {
           <div style={FOOTER_STYLE}>Сохраняет PNG как на экране (масштаб/смещение). Перемещение: зажмите ЛКМ и тяните.</div>
         </div>
       </div>
+
+      {/* MODAL: Import Jira */}
+      {isImportOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsImportOpen(false);
+              setImportText("");
+            }
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            // чуть темнее, чтобы модалка не "светилась" и фон приглушался
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 32,
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 760,
+              maxHeight: "calc(100vh - 64px)",
+              display: "flex",
+              flexDirection: "column",
+
+              // карточка в стиле тёмного UI
+              border: "1px solid rgba(255,255,255,0.10)",
+              borderRadius: 12,
+              background: "#1f1f1f",
+              boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+              padding: 16,
+              color: "#eaeaea",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                height: 40,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 10,
+              }}
+            >
+              <div style={{ fontWeight: 700, color: "#f2f2f2" }}>Импорт из Jira</div>
+
+              <button
+                onClick={() => {
+                  setIsImportOpen(false);
+                  setImportText("");
+                }}
+                aria-label="Close"
+                title="Закрыть"
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 8,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "#262626",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 20,
+                  fontWeight: 700,
+                  color: "#f2f2f2",
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Description */}
+            <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12, marginBottom: 8 }}>
+              Вставьте текст из Jira для восстановления исходного текста с отступами.
+            </div>
+
+            {/* Textarea */}
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder={`{code:java}\n...\n{code}`}
+              style={{
+                width: "100%",
+                height: "min(360px, 55vh)",
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                fontSize: 13,
+                padding: 10,
+                borderRadius: 10,
+                resize: "vertical",
+                boxSizing: "border-box",
+                outline: "none",
+
+                // тёмное поле в стиле приложения
+                background: "#141414",
+                color: "#eaeaea",
+                border: "1px solid rgba(255,255,255,0.12)",
+              }}
+            />
+
+            {/* Footer */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                marginTop: 10,
+                //paddingTop: 10,
+                //borderTop: "1px solid rgba(255,255,255,0.10)",
+              }}
+            >
+              <div style={{ color: "rgba(255,255,255,0.60)", fontSize: 12 }}>
+                Нажмите кнопку Import, чтобы заменить поле Действия восстановленным текстом.
+              </div>
+
+              <button
+                title="Импортировать и заменить поле “Действия”"
+                onClick={runImport}
+                style={{
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  borderRadius: 8,
+
+                  // кнопка в тёмном стиле
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  background: "#262626",
+                  color: "#f2f2f2",
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
