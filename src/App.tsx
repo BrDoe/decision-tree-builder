@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Node = {
   text: string;
@@ -427,6 +427,8 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
 
+  const [isImportMounted, setIsImportMounted] = useState(false);
+
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const parsed = useMemo(() => parseIndentedTree(input, INDENT_SIZE), [input]);
@@ -577,7 +579,7 @@ export default function App() {
                   }}
                   style={{ padding: "6px 10px", cursor: "pointer" }}
                 >
-                  Import Jira
+                  Import
                 </button>
 
                 <button
@@ -877,7 +879,7 @@ export default function App() {
 
             {/* Description */}
             <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12, marginBottom: 8 }}>
-              Вставьте текст из Jira для восстановления исходного текста с отступами. Можно вставить вместе с {"{code}"}.
+              Вставьте текст из Jira для восстановления обычного текста с отступами. Можно вставить вместе с {"{code}"}.
             </div>
 
             {/* Textarea */}
@@ -917,7 +919,7 @@ export default function App() {
               }}
             >
               <div style={{ color: "rgba(255,255,255,0.60)", fontSize: 12 }}>
-                Нажмите кнопку Import, чтобы заменить поле Действия восстановленным текстом.
+                Нажмите кнопку Import, чтобы импортировать в поле Действия обычный текст.
               </div>
 
               <button
