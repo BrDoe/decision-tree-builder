@@ -877,7 +877,7 @@ export default function App() {
 
             {/* Description */}
             <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12, marginBottom: 8 }}>
-              Вставьте текст из Jira для восстановления исходного текста с отступами.
+              Вставьте текст из Jira для восстановления исходного текста с отступами. Можно вставить вместе с {"{code}"}.
             </div>
 
             {/* Textarea */}
@@ -921,7 +921,7 @@ export default function App() {
               </div>
 
               <button
-                title="Импортировать и заменить поле “Действия”"
+                title="Импортировать и заменить текст в поле Действия"
                 onClick={runImport}
                 style={{
                   padding: "6px 12px",
