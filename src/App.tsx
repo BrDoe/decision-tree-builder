@@ -39,6 +39,13 @@ function countLeadingSpaces(s: string): number {
   return i;
 }
 
+function getLineIndentBeforeCursor(text: string, cursor: number): number {
+  const lineStart = text.lastIndexOf("\n", cursor - 1) + 1; // если \n нет, lastIndexOf вернет -1, +1 => 0
+  let i = lineStart;
+  while (i < text.length && text[i] === " ") i++;
+  return i - lineStart;
+}
+
 function parseIndentedTree(input: string, indentSize = 2): Node[] {
   const lines = input
     .replace(/\t/g, " ".repeat(indentSize))
@@ -333,8 +340,9 @@ export default function App() {
   // Single source of truth for vertical alignment
   const CONTENT_HEIGHT = 660;
   const HEADER_HEIGHT = 36;
-  const FOOTER_HEIGHT = 18;
+  const FOOTER_HEIGHT = 36;
   const ROW_GAP = 6;
+  const INDENT_SIZE = 2;
 
   const COLUMN_STYLE: React.CSSProperties = {
     display: "grid",
@@ -346,11 +354,10 @@ export default function App() {
   const FOOTER_STYLE: React.CSSProperties = {
     height: FOOTER_HEIGHT,
     color: "#555",
-    fontSize: 12,
-    lineHeight: `${FOOTER_HEIGHT}px`,
+    fontSize: 11,
+    lineHeight: "18px",
     overflow: "hidden",
-    whiteSpace: "nowrap",
-    textOverflow: "ellipsis",
+    whiteSpace: "normal",
   };
 
   const [input, setInput] = useState(DEFAULT_INPUT);
@@ -452,6 +459,35 @@ export default function App() {
   </div>
 );
 
+  const onInputKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+  // Enter без автоотступа
+  if (e.key !== "Enter" || e.shiftKey) return;
+
+  // не ломаем IME
+  // @ts-ignore - isComposing есть в большинстве браузеров
+  if ((e as any).isComposing) return;
+
+  e.preventDefault();
+
+  const el = e.currentTarget;
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? start;
+
+  const indent = getLineIndentBeforeCursor(input, start);
+  const insert = "\n" + " ".repeat(indent + INDENT_SIZE);
+
+  const next = input.slice(0, start) + insert + input.slice(end);
+
+  setInput(next);
+
+  // поставить курсор после вставленных пробелов
+  const nextPos = start + insert.length;
+  requestAnimationFrame(() => {
+    el.selectionStart = nextPos;
+    el.selectionEnd = nextPos;
+  });
+};
+
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", padding: 10, maxWidth: 2000, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 8px" }}>Decision Tree Builder</h2>
@@ -506,6 +542,7 @@ export default function App() {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onInputKeyDown}
             style={{
               width: "100%",
               height: CONTENT_HEIGHT,
@@ -520,7 +557,8 @@ export default function App() {
             }}
           />
 
-          <div style={FOOTER_STYLE}>Правило: 2 пробела = 1 уровень.</div>
+        <div style={FOOTER_STYLE}>Отступ: 2 пробела = 1 уровень.<br />
+            Enter — новый шаг на уровень ниже, Shift+Enter — обычный перенос.</div>
         </div>
 
         {/* JIRA */}
