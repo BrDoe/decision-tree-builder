@@ -724,7 +724,7 @@ export default function App() {
               display: "block",
               touchAction: "none",
             }}
-            title="Колесо мыши — масштаб. Перемещение: зажмите ЛКМ и тяните."
+            title="Колесо мыши — масштаб. Перемещение: зажать ЛКМ и тянуть."
           >
             <svg
               ref={svgRef}
