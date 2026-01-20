@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 type Node = {
   text: string;
@@ -426,8 +426,6 @@ export default function App() {
 
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
-
-  const [isImportMounted, setIsImportMounted] = useState(false);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
