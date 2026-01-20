@@ -610,7 +610,7 @@ export default function App() {
           />
 
           <div style={FOOTER_STYLE}>
-            Отступ 2 пробела = 1 уровень. Пустые строки игнорируются.<br />
+            Отступ 2 пробела = новый уровень. Пустые строки игнорируются.<br />
             Enter: новый шаг на уровень ниже, Shift+Enter: обычный перенос.
           </div>
         </div>
@@ -654,7 +654,9 @@ export default function App() {
             {jiraOut}
           </pre>
 
-          <div style={FOOTER_STYLE}>Скопируйте и вставьте в комментарий Jira как Code Block.</div>
+          <div style={FOOTER_STYLE}>Готовая схема для вставки в Jira.<br />
+          Можно конвертировать в обычный текст через Import.
+          </div>
         </div>
 
         {/* GRAPHIC */}
@@ -792,7 +794,8 @@ export default function App() {
             </svg>
           </div>
 
-          <div style={FOOTER_STYLE}>Сохраняет PNG как на экране (масштаб/смещение). Перемещение: зажмите ЛКМ и тяните.</div>
+          <div style={FOOTER_STYLE}>Сохранение в PNG в том виде как на экране (масштаб/смещение).<br />
+          Масштаб: колесо мыши или кнопки -+. Смещение: зажать ЛКМ и тянуть.</div>
         </div>
       </div>
 
