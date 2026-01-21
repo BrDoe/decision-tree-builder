@@ -391,7 +391,10 @@ async function exportSvgAsPng(svgEl: SVGSVGElement, outW: number, outH: number, 
 }
 
 export default function App() {
-  const CONTENT_HEIGHT = 660;
+
+  //const CONTENT_HEIGHT = 660;
+  const CONTENT_HEIGHT = "clamp(520px, calc(100vh - 200px), 920px)";
+  //const CONTENT_HEIGHT = "calc(100vh - 200px)"; 
   const HEADER_HEIGHT = 36;
   const FOOTER_HEIGHT = 36;
   const ROW_GAP = 6;
@@ -542,7 +545,16 @@ export default function App() {
   };
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: 10, maxWidth: 2000, margin: "0 auto" }}>
+<div
+  style={{
+    fontFamily: "system-ui, sans-serif",
+    padding: 8,
+    width: "min(2200px, 100%)",
+    margin: "0 auto",
+    overflow: "hidden",
+    boxSizing: "border-box",
+  }}
+>
       <h2 style={{ margin: "0 0 8px" }}>Decision Tree Builder</h2>
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
