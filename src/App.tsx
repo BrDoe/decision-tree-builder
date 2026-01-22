@@ -318,14 +318,16 @@ function layoutTreeForSvg(flat: FlatNode[]) {
   const minX = Math.min(...positioned.map((p) => p.x));
   const minY = Math.min(...positioned.map((p) => p.y));
   const MARGIN = 20;
+const MIN_CANVAS_W = 900;
+const MIN_CANVAS_H = 600;
 
   const dx = minX < MARGIN ? MARGIN - minX : 0;
   const dy = minY < MARGIN ? MARGIN - minY : 0;
 
   if (dx || dy) positioned = positioned.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
 
-  const maxX = Math.max(...positioned.map((p) => p.x + p.w), 420);
-  const maxY = Math.max(...positioned.map((p) => p.y + p.h), 240);
+  const maxX = Math.max(...positioned.map((p) => p.x + p.w), MIN_CANVAS_W);
+  const maxY = Math.max(...positioned.map((p) => p.y + p.h), MIN_CANVAS_H);
 
   return {
     positioned,
@@ -444,6 +446,7 @@ const [history, setHistory] = useState<HistoryEntry[]>([]);
 
 const HISTORY_LS_KEY = "dtb.history.v1";
 const HISTORY_MAX = 50;
+  const MODAL_MIN_H = 560;
 
 const safeJsonParse = <T,>(raw: string | null, fallback: T): T => {
   if (!raw) return fallback;
@@ -1045,6 +1048,7 @@ useEffect(() => {
         width: "100%",
         maxWidth: 760,
         maxHeight: "calc(100vh - 64px)",
+        minHeight: MODAL_MIN_H,
         display: "flex",
         flexDirection: "column",
 
@@ -1101,9 +1105,11 @@ useEffect(() => {
           borderRadius: 10,
           background: "#141414",
           overflow: "hidden",
+          flex: 1,
+          minHeight: 0,
         }}
       >
-        <div style={{maxHeight: "min(420px, 58vh)", minHeight: "min(460px, 44vh)", overflowY: "auto",}}>
+        <div style={{ height: "100%", overflowY: "auto" }}>
           {history.length === 0 ? (
             <div style={{ padding: 12, color: "rgba(255,255,255,0.65)", fontSize: 13 }}>История пуста.</div>
           ) : (
@@ -1224,6 +1230,7 @@ useEffect(() => {
               width: "100%",
               maxWidth: 760,
               maxHeight: "calc(100vh - 64px)",
+        minHeight: MODAL_MIN_H,
               display: "flex",
               flexDirection: "column",
 
@@ -1287,7 +1294,8 @@ useEffect(() => {
               placeholder={`{code:java}\n...\n{code}`}
               style={{
                 width: "100%",
-                height: "min(360px, 55vh)",
+                flex: 1,
+                minHeight: 0,
                 fontFamily:
                   "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
                 fontSize: 13,
