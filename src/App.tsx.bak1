@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Node = {
   text: string;
@@ -21,6 +21,15 @@ type PositionedNode = FlatNode & {
   h: number;
   lines: string[];
 };
+
+type HistoryEntry = {
+  id: string;
+  createdTs: number; // when this history item was first created
+  ts: number; // last updated, epoch ms
+  title: string;
+  text: string;
+};
+
 
 const DEFAULT_INPUT = `В запросе передан: manager
   manager == null?
@@ -309,14 +318,16 @@ function layoutTreeForSvg(flat: FlatNode[]) {
   const minX = Math.min(...positioned.map((p) => p.x));
   const minY = Math.min(...positioned.map((p) => p.y));
   const MARGIN = 20;
+const MIN_CANVAS_W = 900;
+const MIN_CANVAS_H = 600;
 
   const dx = minX < MARGIN ? MARGIN - minX : 0;
   const dy = minY < MARGIN ? MARGIN - minY : 0;
 
   if (dx || dy) positioned = positioned.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
 
-  const maxX = Math.max(...positioned.map((p) => p.x + p.w), 420);
-  const maxY = Math.max(...positioned.map((p) => p.y + p.h), 240);
+  const maxX = Math.max(...positioned.map((p) => p.x + p.w), MIN_CANVAS_W);
+  const maxY = Math.max(...positioned.map((p) => p.y + p.h), MIN_CANVAS_H);
 
   return {
     positioned,
@@ -430,6 +441,184 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
 
+const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+const HISTORY_LS_KEY = "dtb.history.v1";
+const HISTORY_MAX = 50;
+  const MODAL_MIN_H = 560;
+
+const safeJsonParse = <T,>(raw: string | null, fallback: T): T => {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+const deriveTitleFromInput = (text: string): string => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines[0] ?? "(пусто)";
+};
+
+const loadHistory = (): HistoryEntry[] => {
+  const raw = localStorage.getItem(HISTORY_LS_KEY);
+  const parsed = safeJsonParse<HistoryEntry[]>(raw, []);
+  // нормализация и отсечение мусора
+  const cleaned = parsed
+    .filter((e) => e && typeof e.text === "string")
+    .map((e) => ({
+      id: typeof e.id === "string" ? e.id : String(e.ts ?? Date.now()),
+      createdTs: typeof (e as any).createdTs === "number" ? (e as any).createdTs : (typeof e.ts === "number" ? e.ts : Date.now()),
+      ts: typeof e.ts === "number" ? e.ts : Date.now(),
+      title: typeof e.title === "string" && e.title.trim().length ? e.title : deriveTitleFromInput(e.text),
+      text: e.text,
+    }))
+    .slice(0, HISTORY_MAX);
+  return cleaned;
+};
+
+const persistHistory = (items: HistoryEntry[]) => {
+  try {
+    localStorage.setItem(HISTORY_LS_KEY, JSON.stringify(items.slice(0, HISTORY_MAX)));
+  } catch (e) {
+    console.warn("Failed to persist history", e);
+  }
+};
+
+const HOUR_MS = 60 * 60 * 1000;
+
+const pushToHistory = (text: string) => {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return;
+
+  // Не сохраняем дефолтную схему (ни автосейвом, ни принудительными триггерами)
+  if (text === DEFAULT_INPUT) return;
+
+  const now = Date.now();
+  const title = deriveTitleFromInput(text);
+
+  const current = loadHistory();
+
+  // Не пишем дубликат подряд
+  const last = current[0];
+  if (last && last.text === text) return;
+
+  // Правило "1 час на одно название":
+  // - если существует самая свежая запись с таким title и с момента ЕЁ создания прошло < 1 часа,
+  //   то обновляем её (ts/text), а не добавляем новую.
+  // - если прошло >= 1 часа, то создаём новую запись даже с тем же title.
+  const sameTitleIdx = current.findIndex((e) => e.title === title);
+  if (sameTitleIdx >= 0) {
+    const existing = current[sameTitleIdx];
+    const created = typeof (existing as any).createdTs === "number" ? (existing as any).createdTs : existing.ts;
+    const ageMs = now - created;
+
+    // Если текст не изменился — ничего не делаем (чтобы не "продлеваць" окно бесконечно)
+    if (existing.text === text) return;
+
+    if (ageMs < HOUR_MS) {
+      const updated: HistoryEntry = {
+        ...existing,
+        ts: now,
+        text,
+        title,
+        createdTs: created,
+      };
+
+      const next = [
+        updated,
+        ...current
+          .filter((_, i) => i !== sameTitleIdx)
+          // дедупликация по полному text (убираем совпадающие)
+          .filter((e) => e.text !== text),
+      ].slice(0, HISTORY_MAX);
+
+      persistHistory(next);
+      setHistory(next);
+      return;
+    }
+  }
+
+  const entry: HistoryEntry = {
+    id: `${now}-${Math.random().toString(16).slice(2)}`,
+    createdTs: now,
+    ts: now,
+    title,
+    text,
+  };
+
+  // дедупликация по полному text
+  const next = [entry, ...current.filter((e) => e.text !== text)].slice(0, HISTORY_MAX);
+  persistHistory(next);
+  setHistory(next);
+};
+
+const clearHistory = () => {
+  localStorage.removeItem(HISTORY_LS_KEY);
+  setHistory([]);
+};
+
+
+const formatDateTime = (ts: number): string => {
+  const d = new Date(ts); // timezone from device
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+
+const deleteHistoryEntry = (id: string) => {
+  const next = loadHistory().filter((e) => e.id !== id);
+  persistHistory(next);
+  setHistory(next);
+
+  // UX: если удалили последнюю запись — закрываем модалку и возвращаем дефолтную схему
+  if (next.length === 0) {
+    setIsHistoryOpen(false);
+    setInput(DEFAULT_INPUT);
+  }
+};
+
+
+useEffect(() => {
+  // При старте: если есть история — показываем последнюю схему, иначе дефолтную
+  const h = loadHistory();
+  if (h.length > 0) {
+    setInput(h[0].text);
+  } else {
+    setInput(DEFAULT_INPUT);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+useEffect(() => {
+  if (!isImportOpen && !isHistoryOpen) return;
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+
+    // Если открыты обе модалки, закрываем "верхнюю" (Import), иначе — History.
+    if (isImportOpen) {
+      setIsImportOpen(false);
+      return;
+    }
+    if (isHistoryOpen) {
+      setIsHistoryOpen(false);
+    }
+  };
+
+  window.addEventListener("keydown", onKeyDown);
+  return () => window.removeEventListener("keydown", onKeyDown);
+}, [isImportOpen, isHistoryOpen]);
+
+
+
+
+
+
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const parsed = useMemo(() => parseIndentedTree(input, INDENT_SIZE), [input]);
@@ -466,6 +655,7 @@ export default function App() {
 
   const saveGraphPng = async () => {
     try {
+      pushToHistory(input);
       if (!svgRef.current) {
         alert("SVG не найден.");
         return;
@@ -485,6 +675,7 @@ export default function App() {
       return;
     }
     setInput(converted);
+    pushToHistory(converted);
     setIsImportOpen(false);
     setImportText("");
   };
@@ -544,6 +735,16 @@ export default function App() {
     });
   };
 
+// Автосохранение схем в историю (debounce)
+useEffect(() => {
+  const t = window.setTimeout(() => {
+    pushToHistory(input);
+  }, 800);
+  return () => window.clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [input]);
+
+
   return (
 <div
   style={{
@@ -582,7 +783,7 @@ export default function App() {
             right={
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button
-                  title="Конвертировать текст Jira в обычный текст с отступами"
+                  title="Конвертировать ASCII-схему в обычный текст с отступами"
                   onClick={() => {
                     setIsImportOpen(true);
                     setImportText("");
@@ -591,10 +792,21 @@ export default function App() {
                 >
                   Import
                 </button>
+<button
+  title="Открыть историю"
+  onClick={() => {
+    setHistory(loadHistory());
+    setIsHistoryOpen(true);
+  }}
+  style={{ padding: "6px 10px", cursor: "pointer" }}
+>
+  History
+</button>
+
 
                 <button
-                  title="Скопировать текст из поля Действия"
-                  onClick={() => copyToClipboard(input)}
+                  title="Скопировать схему с отступами"
+                  onClick={() => { pushToHistory(input); copyToClipboard(input); }}
                   style={{ padding: "6px 10px", cursor: "pointer" }}
                 >
                   Copy
@@ -630,10 +842,10 @@ export default function App() {
         {/* JIRA */}
         <div style={COLUMN_STYLE}>
           <Header
-            title="Код для Jira"
+            title="ASCII"
             right={
               <button
-                title="Скопировать готовый текст для Jira"
+                title="Скопировать ASCII-схему"
                 onClick={() => copyToClipboard(jiraOut)}
                 style={{ padding: "6px 10px", cursor: "pointer" }}
               >
@@ -674,7 +886,7 @@ export default function App() {
         {/* GRAPHIC */}
         <div style={COLUMN_STYLE}>
           <Header3
-            title="Графика"
+            title="Диаграмма"
             center={
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button title="Уменьшить масштаб" onClick={zoomOut} style={{ padding: "6px 10px", cursor: "pointer" }}>
@@ -695,7 +907,7 @@ export default function App() {
               </div>
             }
             right={
-              <button title="Сохранить текущий вид схемы в PNG" onClick={saveGraphPng} style={{ padding: "6px 10px", cursor: "pointer" }}>
+              <button title="Сохранить в PNG схему в текущем масштабе" onClick={saveGraphPng} style={{ padding: "6px 10px", cursor: "pointer" }}>
                 Save
               </button>
             }
@@ -810,6 +1022,186 @@ export default function App() {
         </div>
       </div>
 
+{/* MODAL: History */}
+{isHistoryOpen && (
+  <div
+    role="dialog"
+    aria-modal="true"
+    onMouseDown={(e) => {
+      if (e.target === e.currentTarget) {
+        setIsHistoryOpen(false);
+      }
+    }}
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.6)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32,
+      zIndex: 9999,
+    }}
+  >
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 760,
+        maxHeight: "calc(100vh - 64px)",
+        minHeight: MODAL_MIN_H,
+        display: "flex",
+        flexDirection: "column",
+
+        border: "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 12,
+        background: "#1f1f1f",
+        boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+        padding: 16,
+        color: "#eaeaea",
+      }}
+    >
+      <div
+        style={{
+          height: 40,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ fontWeight: 700, color: "#f2f2f2" }}>История</div>
+
+        <button
+          onClick={() => setIsHistoryOpen(false)}
+          aria-label="Close"
+          title="Закрыть"
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 8,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "#262626",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 20,
+            fontWeight: 700,
+            color: "#f2f2f2",
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12, marginBottom: 8 }}>
+        Последние {HISTORY_MAX} схем. История хранится локально в браузере. Название схемы: первая строка в поле Действия.
+      </div>
+
+      <div
+        style={{
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 10,
+          background: "#141414",
+          overflow: "hidden",
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <div style={{ height: "100%", overflowY: "auto" }}>
+          {history.length === 0 ? (
+            <div style={{ padding: 12, color: "rgba(255,255,255,0.65)", fontSize: 13 }}>История пуста.</div>
+          ) : (
+            history.map((h) => (
+              <div
+                key={h.id}
+                style={{
+                  display: "flex",
+                  alignItems: "stretch",
+                  borderBottom: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setInput(h.text);
+                    setIsHistoryOpen(false);
+                  }}
+                  title="Загрузить схему в поле «Действия»"
+                  style={{
+                    flex: 1,
+                    textAlign: "left",
+                    padding: "10px 12px",
+                    cursor: "pointer",
+                    background: "transparent",
+                    color: "#eaeaea",
+                    border: "none",
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: "#f2f2f2" }}>{h.title}</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2 }}>
+                    {formatDateTime(h.ts)}
+                  </div>
+                </button>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteHistoryEntry(h.id);
+                  }}
+                  title="Удалить запись"
+                  aria-label="Delete"
+                  style={{
+                    width: 44,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    color: "rgba(255,255,255,0.70)",
+                    fontSize: 18,
+                    fontWeight: 700,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 10 }}>
+        <div style={{ color: "rgba(255,255,255,0.60)", fontSize: 12 }}>
+          Выберите схему, чтобы загрузить её в поле Действия. Кнопка Clear очищает историю.
+        </div>
+
+        <button
+          title="Очистить историю схем"
+          onClick={() => {
+                  const ok = window.confirm("Очистить историю схем?");
+                  if (!ok) return;
+                  clearHistory();
+                  setIsHistoryOpen(false);
+                  setInput(DEFAULT_INPUT);
+                }}
+          style={{
+            padding: "6px 12px",
+            cursor: "pointer",
+            borderRadius: 8,
+            border: "1px solid rgba(255,255,255,0.16)",
+            background: "#262626",
+            color: "#f2f2f2",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
       {/* MODAL: Import Jira */}
       {isImportOpen && (
         <div
@@ -838,6 +1230,7 @@ export default function App() {
               width: "100%",
               maxWidth: 760,
               maxHeight: "calc(100vh - 64px)",
+        minHeight: MODAL_MIN_H,
               display: "flex",
               flexDirection: "column",
 
@@ -860,7 +1253,7 @@ export default function App() {
                 marginBottom: 10,
               }}
             >
-              <div style={{ fontWeight: 700, color: "#f2f2f2" }}>Импорт из Jira</div>
+              <div style={{ fontWeight: 700, color: "#f2f2f2" }}>Импорт из ASCII</div>
 
               <button
                 onClick={() => {
@@ -891,7 +1284,7 @@ export default function App() {
 
             {/* Description */}
             <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12, marginBottom: 8 }}>
-              Вставьте текст из Jira для восстановления обычного текста с отступами. Можно вставить вместе с {"{code}"}.
+              Вставьте ASCII-схему для восстановления обычного текста с отступами. Можно вставить вместе с {"{code}"}.
             </div>
 
             {/* Textarea */}
@@ -901,7 +1294,8 @@ export default function App() {
               placeholder={`{code:java}\n...\n{code}`}
               style={{
                 width: "100%",
-                height: "min(360px, 55vh)",
+                flex: 1,
+                minHeight: 0,
                 fontFamily:
                   "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
                 fontSize: 13,

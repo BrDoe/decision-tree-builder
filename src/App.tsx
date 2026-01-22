@@ -326,6 +326,22 @@ const MIN_CANVAS_H = 600;
 
   if (dx || dy) positioned = positioned.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
 
+  // Center content horizontally within the canvas (X only).
+  // We keep at least MARGIN on the left; if there is extra space (e.g. due to MIN_CANVAS_W),
+  // distribute it evenly to left/right by shifting all nodes.
+  const contentMinX = Math.min(...positioned.map((p) => p.x));
+  const contentMaxX = Math.max(...positioned.map((p) => p.x + p.w));
+  const contentWidth = contentMaxX - contentMinX;
+
+  // Canvas width is based on the larger of actual content width and the configured minimum.
+  // We include the existing single-side MARGIN in the returned width; centering uses the full width.
+  const canvasWidth = Math.max(contentMaxX, MIN_CANVAS_W) + MARGIN;
+
+  const desiredMinX = Math.max(MARGIN, (canvasWidth - contentWidth) / 2);
+  const dxCenter = desiredMinX - contentMinX;
+
+  if (dxCenter) positioned = positioned.map((p) => ({ ...p, x: p.x + dxCenter, y: p.y }));
+
   const maxX = Math.max(...positioned.map((p) => p.x + p.w), MIN_CANVAS_W);
   const maxY = Math.max(...positioned.map((p) => p.y + p.h), MIN_CANVAS_H);
 
@@ -352,12 +368,23 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-async function exportSvgAsPng(svgEl: SVGSVGElement, outW: number, outH: number, filename: string) {
+async function exportSvgAsPng(
+  svgEl: SVGSVGElement,
+  outW: number,
+  outH: number,
+  filename: string,
+  viewBoxOverride?: { x: number; y: number; w: number; h: number }
+) {
   const clone = svgEl.cloneNode(true) as SVGSVGElement;
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("width", String(outW));
   clone.setAttribute("height", String(outH));
-  clone.setAttribute("viewBox", `0 0 ${outW} ${outH}`);
+
+  if (viewBoxOverride) {
+    clone.setAttribute("viewBox", `${viewBoxOverride.x} ${viewBoxOverride.y} ${viewBoxOverride.w} ${viewBoxOverride.h}`);
+  } else {
+    clone.setAttribute("viewBox", `0 0 ${outW} ${outH}`);
+  }
 
   const serializer = new XMLSerializer();
   const svgText = serializer.serializeToString(clone);
@@ -377,6 +404,7 @@ async function exportSvgAsPng(svgEl: SVGSVGElement, outW: number, outH: number, 
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("canvas ctx is null");
 
+        // White background (so SVG transparency does not become black in PNG).
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0);
@@ -653,20 +681,48 @@ useEffect(() => {
     setZoom((z) => clamp(Number((z * next).toFixed(4)), 0.4, 5));
   };
 
-  const saveGraphPng = async () => {
-    try {
-      pushToHistory(input);
-      if (!svgRef.current) {
-        alert("SVG не найден.");
-        return;
-      }
-      const filename = `decision-tree-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
-      await exportSvgAsPng(svgRef.current, layout.width, layout.height, filename);
-    } catch (e: any) {
-      console.error(e);
-      alert(`Не удалось сохранить изображение: ${e?.message ?? e}`);
+const saveGraphPng = async () => {
+  try {
+    // Mandatory save on Save PNG
+    pushToHistory(input);
+
+    if (!svgRef.current) {
+      alert("SVG не найден.");
+      return;
     }
-  };
+
+    const filename = `decision-tree-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
+
+    // Fit-to-content export:
+    // - UI canvas may be larger (MIN_CANVAS_*), but the exported PNG should be tightly cropped.
+    // - We keep a padding so that strokes/curves are not clipped.
+    const PAD = 32;
+
+    if (layout.positioned.length === 0) {
+      // Nothing to crop – export the whole canvas.
+      await exportSvgAsPng(svgRef.current, layout.width, layout.height, filename);
+      return;
+    }
+
+    const xs = layout.positioned.flatMap((p) => [p.x, p.x + p.w]);
+    const ys = layout.positioned.flatMap((p) => [p.y, p.y + p.h]);
+
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const vbX = Math.floor(minX - PAD);
+    const vbY = Math.floor(minY - PAD);
+    const vbW = Math.ceil(maxX - minX + PAD * 2);
+    const vbH = Math.ceil(maxY - minY + PAD * 2);
+
+    await exportSvgAsPng(svgRef.current, vbW, vbH, filename, { x: vbX, y: vbY, w: vbW, h: vbH });
+  } catch (e: any) {
+    console.error(e);
+    alert(`Не удалось сохранить изображение: ${e?.message ?? e}`);
+  }
+};
 
   const runImport = () => {
     const converted = importJiraToIndented(importText, INDENT_SIZE);
