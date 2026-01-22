@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 type Node = {
   text: string;
@@ -21,14 +21,6 @@ type PositionedNode = FlatNode & {
   h: number;
   lines: string[];
 };
-
-type HistoryEntry = {
-  id: string;
-  ts: number; // epoch ms
-  title: string;
-  text: string;
-};
-
 
 const DEFAULT_INPUT = `В запросе передан: manager
   manager == null?
@@ -438,99 +430,7 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
 
-const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-const [history, setHistory] = useState<HistoryEntry[]>([]);
-
-const HISTORY_LS_KEY = "dtb.history.v1";
-const HISTORY_MAX = 50;
-
-const safeJsonParse = <T,>(raw: string | null, fallback: T): T => {
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-};
-
-const deriveTitleFromInput = (text: string): string => {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  return lines[0] ?? "(пусто)";
-};
-
-
-  const pad2 = (n: number) => String(n).padStart(2, "0");
-  const formatTs = (ts: number) => {
-    const d = new Date(ts); // timezone устройства
-    return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  };
-
-const loadHistory = (): HistoryEntry[] => {
-  const raw = localStorage.getItem(HISTORY_LS_KEY);
-  const parsed = safeJsonParse<HistoryEntry[]>(raw, []);
-  // нормализация и отсечение мусора
-  const cleaned = parsed
-    .filter((e) => e && typeof e.text === "string")
-    .map((e) => ({
-      id: typeof e.id === "string" ? e.id : String(e.ts ?? Date.now()),
-      ts: typeof e.ts === "number" ? e.ts : Date.now(),
-      title: typeof e.title === "string" && e.title.trim().length ? e.title : deriveTitleFromInput(e.text),
-      text: e.text,
-    }))
-    .slice(0, HISTORY_MAX);
-  return cleaned;
-};
-
-const persistHistory = (items: HistoryEntry[]) => {
-  try {
-    localStorage.setItem(HISTORY_LS_KEY, JSON.stringify(items.slice(0, HISTORY_MAX)));
-  } catch (e) {
-    console.warn("Failed to persist history", e);
-  }
-};
-
-const pushToHistory = (text: string) => {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return;
-
-  const current = loadHistory();
-  const last = current[0];
-  if (last && last.text === text) return; // не пишем дубликат подряд
-
-  const entry: HistoryEntry = {
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    ts: Date.now(),
-    title: deriveTitleFromInput(text),
-    text,
-  };
-
-  // лёгкая дедупликация: убираем совпадающие по text
-  const next = [entry, ...current.filter((e) => e.text !== text)].slice(0, HISTORY_MAX);
-  persistHistory(next);
-  setHistory(next);
-};
-
-const clearHistory = () => {
-  localStorage.removeItem(HISTORY_LS_KEY);
-  setHistory([]);
-};
-
-
   const svgRef = useRef<SVGSVGElement | null>(null);
-
-  // Инициализация из истории: если есть хоть одна схема — показываем её, иначе дефолтную
-  useEffect(() => {
-    const h = loadHistory();
-    setHistory(h);
-    if (h.length > 0) {
-      setInput(h[0].text);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
 
   const parsed = useMemo(() => parseIndentedTree(input, INDENT_SIZE), [input]);
   const ascii = useMemo(() => renderAsciiTree(parsed), [parsed]);
@@ -585,7 +485,6 @@ const clearHistory = () => {
       return;
     }
     setInput(converted);
-    pushToHistory(converted);
     setIsImportOpen(false);
     setImportText("");
   };
@@ -645,16 +544,6 @@ const clearHistory = () => {
     });
   };
 
-// Автосохранение схем в историю (debounce)
-useEffect(() => {
-  const t = window.setTimeout(() => {
-    pushToHistory(input);
-  }, 800);
-  return () => window.clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [input]);
-
-
   return (
 <div
   style={{
@@ -695,7 +584,6 @@ useEffect(() => {
                 <button
                   title="Конвертировать текст Jira в обычный текст с отступами"
                   onClick={() => {
-                    pushToHistory(input);
                     setIsImportOpen(true);
                     setImportText("");
                   }}
@@ -703,24 +591,10 @@ useEffect(() => {
                 >
                   Import
                 </button>
-<button
-  title="История (последние 50 схем)"
-  onClick={() => {
-    setHistory(loadHistory());
-    setIsHistoryOpen(true);
-  }}
-  style={{ padding: "6px 10px", cursor: "pointer" }}
->
-  History
-</button>
-
 
                 <button
                   title="Скопировать текст из поля Действия"
-                  onClick={() => {
-                    pushToHistory(input);
-                    copyToClipboard(input);
-                  }}
+                  onClick={() => copyToClipboard(input)}
                   style={{ padding: "6px 10px", cursor: "pointer" }}
                 >
                   Copy
@@ -821,10 +695,7 @@ useEffect(() => {
               </div>
             }
             right={
-              <button title="Сохранить текущий вид схемы в PNG" onClick={() => {
-                pushToHistory(input);
-                saveGraphPng();
-              }} style={{ padding: "6px 10px", cursor: "pointer" }}>
+              <button title="Сохранить текущий вид схемы в PNG" onClick={saveGraphPng} style={{ padding: "6px 10px", cursor: "pointer" }}>
                 Save
               </button>
             }
@@ -938,150 +809,6 @@ useEffect(() => {
           Масштаб: колесо мыши или кнопки -+. Смещение: зажать ЛКМ и тянуть.</div>
         </div>
       </div>
-
-{/* MODAL: History */}
-{isHistoryOpen && (
-  <div
-    role="dialog"
-    aria-modal="true"
-    onMouseDown={(e) => {
-      if (e.target === e.currentTarget) {
-        setIsHistoryOpen(false);
-      }
-    }}
-    style={{
-      position: "fixed",
-      inset: 0,
-      background: "rgba(0,0,0,0.6)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 32,
-      zIndex: 9999,
-    }}
-  >
-    <div
-      style={{
-        width: "100%",
-        maxWidth: 760,
-        maxHeight: "calc(100vh - 64px)",
-        display: "flex",
-        flexDirection: "column",
-
-        border: "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 12,
-        background: "#1f1f1f",
-        boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
-        padding: 16,
-        color: "#eaeaea",
-      }}
-    >
-      <div
-        style={{
-          height: 40,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 10,
-        }}
-      >
-        <div style={{ fontWeight: 700, color: "#f2f2f2" }}>History</div>
-
-        <button
-          onClick={() => setIsHistoryOpen(false)}
-          aria-label="Close"
-          title="Закрыть"
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.14)",
-            background: "#262626",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 20,
-            fontWeight: 700,
-            color: "#f2f2f2",
-            lineHeight: 1,
-          }}
-        >
-          ×
-        </button>
-      </div>
-
-      <div style={{ color: "rgba(255,255,255,0.70)", fontSize: 12, marginBottom: 8 }}>
-        Последние {HISTORY_MAX} схем (локально в браузере). Название — первая непустая строка в поле «Действия».
-      </div>
-
-      <div
-        style={{
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 10,
-          background: "#141414",
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ maxHeight: "min(420px, 58vh)", overflowY: "auto" }}>
-          {history.length === 0 ? (
-            <div style={{ padding: 12, color: "rgba(255,255,255,0.65)", fontSize: 13 }}>История пуста.</div>
-          ) : (
-            history.map((h) => (
-              <button
-                key={h.id}
-                onClick={() => {
-                  setInput(h.text);
-                  setIsHistoryOpen(false);
-                }}
-                title="Загрузить схему в поле «Действия»"
-                style={{
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "10px 12px",
-                  cursor: "pointer",
-                  background: "transparent",
-                  color: "#eaeaea",
-                  border: "none",
-                  borderBottom: "1px solid rgba(255,255,255,0.08)",
-                  fontSize: 13,
-                }}
-              >
-                <div style={{ fontWeight: 600, color: "#f2f2f2" }}>{h.title}</div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2 }}>
-                  {formatTs(h.ts)}
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 10 }}>
-        <div style={{ color: "rgba(255,255,255,0.60)", fontSize: 12 }}>
-          Выберите схему, чтобы загрузить её в «Действия». Кнопка Clear удаляет историю.
-        </div>
-
-        <button
-          title="Очистить историю схем"
-          onClick={clearHistory}
-          style={{
-            padding: "6px 12px",
-            cursor: "pointer",
-            borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#262626",
-            color: "#f2f2f2",
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
-          Clear
-        </button>
-      </div>
-    </div>
-  </div>
-)}
 
       {/* MODAL: Import Jira */}
       {isImportOpen && (
