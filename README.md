@@ -1,5 +1,9 @@
 # Decision Tree Builder
 
+## Screenshot
+
+![App screenshot](docs/screenshot.png)
+
 [English](#english) | [Русский](#русский)
 
 ---
