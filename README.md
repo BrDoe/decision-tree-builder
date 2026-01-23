@@ -1,73 +1,116 @@
-# React + TypeScript + Vite
+# Decision Tree Builder
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+[English](#english) | [Русский](#русский)
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## English
 
-## React Compiler
+A small React app that converts an indented “actions” list into a decision-tree representation suitable for **Jira** and for quick visual review.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Key features
 
-## Expanding the ESLint configuration
+- **Indented text → tree** parsing (2 spaces = one nesting level)
+- **ASCII tree** output with connectors (`├─`, `└─`) for copy/paste to Jira
+- Optional **Jira `{code:LANG}` wrapper** around the ASCII output
+- **SVG diagram preview** with zoom/pan + reset
+- **PNG export** of the current diagram (tight crop)
+- **Import**: paste an ASCII tree from Jira (including `{code}` blocks) and restore the indented text
+- **Local history** of recent trees (stored in the browser)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Tech stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- React + TypeScript
+- **Vite** for dev server and build
+- No backend; everything runs locally in the browser
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Persistence
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- UI state and history are stored in the browser via `localStorage`
+
+### Requirements
+
+- Node.js 18+ (recommended LTS)
+- npm (or yarn/pnpm)
+
+### Run locally (Vite)
+
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Vite will print the local URL (commonly `http://localhost:5173`).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Build & preview (Vite)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
+npm run preview
 ```
+
+Preview is typically available on `http://localhost:4173`.
+
+### Deploy
+
+Any static hosting works:
+
+1. Build: `npm run build`
+2. Publish the `dist/` folder
+
+---
+
+## Русский
+
+Небольшое React-приложение, которое превращает список действий с отступами в “дерево решений” — удобно для вставки в **Jira** и быстрого визуального просмотра.
+
+### Возможности
+
+- **Текст с отступами → дерево** (2 пробела = один уровень вложенности)
+- **ASCII-дерево** с символами (`├─`, `└─`) для копирования в Jira
+- Опциональная обёртка **Jira `{code:LANG}`** вокруг ASCII
+- **SVG-превью** диаграммы с масштабированием/панорамированием + reset
+- **Экспорт в PNG** текущей диаграммы (аккуратная обрезка по контенту)
+- **Импорт**: вставка ASCII-дерева из Jira (включая `{code}`) и восстановление текста
+- **Локальная история** последних схем (хранится в браузере)
+
+### Технологии
+
+- React + TypeScript
+- **Vite** (dev-сервер и сборка)
+- Бэкенда нет — приложение полностью работает в браузере
+
+### Хранение данных
+
+- Состояние UI и история сохраняются в браузере через `localStorage`
+
+### Требования
+
+- Node.js 18+ (желательно LTS)
+- npm (или yarn/pnpm)
+
+### Запуск локально (Vite)
+
+```bash
+npm install
+npm run dev
+```
+
+Vite выведет URL в терминале (часто `http://localhost:5173`).
+
+### Сборка и локальный просмотр (Vite)
+
+```bash
+npm run build
+npm run preview
+```
+
+Preview обычно доступен по `http://localhost:4173`.
+
+### Деплой
+
+Подходит любой static hosting:
+
+1. Соберите: `npm run build`
+2. Публикуйте папку `dist/`
+
