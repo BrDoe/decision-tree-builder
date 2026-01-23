@@ -15,11 +15,11 @@ A small React app that converts an indented “actions” list into a decision-t
 ### Key features
 
 - **Indented text → tree** parsing (2 spaces = one nesting level)
-- **ASCII tree** output with connectors (`├─`, `└─`) for copy/paste to Jira
+- **ASCII tree** output with connectors (`├─`, `└─`)
 - Optional **Jira `{code:LANG}` wrapper** around the ASCII output
-- **SVG diagram preview** with zoom/pan + reset
-- **PNG export** of the current diagram (tight crop)
-- **Import**: paste an ASCII tree from Jira (including `{code}` blocks) and restore the indented text
+- **SVG diagram preview** with zoom/pan
+- **PNG export** of the current diagram
+- **Import**: paste an ASCII tree and restore the indented text
 - **Local history** of recent trees (stored in the browser)
 
 ### Tech stack
@@ -71,11 +71,11 @@ Any static hosting works:
 ### Возможности
 
 - **Текст с отступами → дерево** (2 пробела = один уровень вложенности)
-- **ASCII-дерево** с символами (`├─`, `└─`) для копирования в Jira
+- **ASCII-дерево** с символами (`├─`, `└─`)
 - Опциональная обёртка **Jira `{code:LANG}`** вокруг ASCII
-- **SVG-превью** диаграммы с масштабированием/панорамированием + reset
-- **Экспорт в PNG** текущей диаграммы (аккуратная обрезка по контенту)
-- **Импорт**: вставка ASCII-дерева из Jira (включая `{code}`) и восстановление текста
+- **SVG-превью** диаграммы с масштабированием/панорамированием
+- **Экспорт в PNG** текущей диаграммы
+- **Импорт**: вставка ASCII-дерева и восстановление исходного текста с отступами
 - **Локальная история** последних схем (хранится в браузере)
 
 ### Технологии
