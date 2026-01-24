@@ -218,45 +218,6 @@ function flattenTree(roots: Node[]): FlatNode[] {
   return flat;
 }
 
-// Word-wrap text into lines with a max character count.
-
-function wrapTextToLines(text: string, maxCharsPerLine: number): string[] {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean) return [""];
-
-  const words = clean.split(" ");
-  const lines: string[] = [];
-  let current = "";
-
-  const pushCurrent = () => {
-    if (current.trim().length) lines.push(current.trim());
-    current = "";
-  };
-
-  for (const w of words) {
-    if (w.length > maxCharsPerLine) {
-      pushCurrent();
-      let chunk = w;
-      while (chunk.length > maxCharsPerLine) {
-        lines.push(chunk.slice(0, maxCharsPerLine));
-        chunk = chunk.slice(maxCharsPerLine);
-      }
-      if (chunk.length) lines.push(chunk);
-      continue;
-    }
-
-    const candidate = current ? `${current} ${w}` : w;
-    if (candidate.length <= maxCharsPerLine) current = candidate;
-    else {
-      pushCurrent();
-      current = w;
-    }
-  }
-  pushCurrent();
-
-  return lines.length ? lines : [clean];
-}
-
 // Measure text width and wrap by pixel width for SVG node sizing.
 // We use an offscreen canvas with the same font as the SVG text.
 let __measureCtx: CanvasRenderingContext2D | null = null;
