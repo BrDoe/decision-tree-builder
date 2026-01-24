@@ -31,16 +31,18 @@ type HistoryEntry = {
 };
 
 
-const DEFAULT_INPUT = `В запросе передан: manager
-  manager == null?
-    Нет
-      Используем переданное значение manager
-    Да
-      Пытаемся достать manager из statdb
-        Успешно (manager найден)
-          Установить/сохранить manager из statdb
-        Неуспешно (не найден / statdb недоступна / ошибка)
-          Обнулить manager у аккаунта`;
+const DEFAULT_INPUT = `Схема принятия решений  
+  Действия
+    Опишите схему текстом с отступами
+      Import. Восстановите текст из ASCII-схемы
+      History. Вернитесь к ранее созданным схемам
+  ASCII
+    Получите готовую ASCII-схему
+      Используйте {code}, чтобы Jira корректно отображала схему
+  Диаграмма
+    Просмотрите визуальную диаграмму
+      Масштабируйте и перемещайте
+      Экспортируейте диаграмму в PNG`;
 
 // Count leading spaces in a string.
 
@@ -255,6 +257,106 @@ function wrapTextToLines(text: string, maxCharsPerLine: number): string[] {
   return lines.length ? lines : [clean];
 }
 
+// Measure text width and wrap by pixel width for SVG node sizing.
+// We use an offscreen canvas with the same font as the SVG text.
+let __measureCtx: CanvasRenderingContext2D | null = null;
+
+function measureTextPx(text: string, font: string): number {
+  if (!__measureCtx) {
+    const c = document.createElement("canvas");
+    __measureCtx = c.getContext("2d");
+  }
+  if (!__measureCtx) return text.length * 7; // Fallback (should not happen in browsers)
+  __measureCtx.font = font;
+  return __measureCtx.measureText(text).width;
+}
+
+function wrapTextToLinesPx(text: string, maxWidthPx: number, font: string): string[] {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return [""];
+
+  // Extended word-wrap:
+  // - primary breaks: spaces
+  // - additional soft breaks after: '-', '/', ':', '+' (useful for technical text)
+  // - if a single token still doesn't fit, split by characters
+
+  const splitWordWithSoftBreaks = (word: string): string[] => {
+    // Split and keep delimiters as separate tokens.
+    const parts = word.split(/([\-\/:\+])/g).filter((p) => p.length > 0);
+
+    // Re-attach delimiters to the left side so we can break AFTER them.
+    const out: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p.length === 1 && "-/:+".includes(p)) {
+        if (out.length === 0) out.push(p);
+        else out[out.length - 1] = out[out.length - 1] + p;
+      } else {
+        out.push(p);
+      }
+    }
+    return out;
+  };
+
+  const words = clean.split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  const push = () => {
+    const t = current.trim();
+    if (t.length) lines.push(t);
+    current = "";
+  };
+
+  const pushToken = (token: string, withLeadingSpace: boolean) => {
+    const prefixed = withLeadingSpace && current.length ? ` ${token}` : token;
+    const candidate = current ? current + prefixed : token;
+    if (measureTextPx(candidate, font) <= maxWidthPx) {
+      current = candidate;
+      return;
+    }
+
+    // If current line already has something — wrap.
+    if (current.trim().length) {
+      push();
+      // Retry without a leading space on a new line.
+      if (measureTextPx(token, font) <= maxWidthPx) {
+        current = token;
+        return;
+      }
+    }
+
+    // Token still too long: split by characters.
+    let chunk = "";
+    for (const ch of token) {
+      const next = chunk + ch;
+      if (measureTextPx(next, font) <= maxWidthPx) chunk = next;
+      else {
+        if (chunk.length) lines.push(chunk);
+        chunk = ch;
+      }
+    }
+    if (chunk.length) {
+      // If we are in the middle of building a line, continue there; otherwise push as a full line.
+      if (current.trim().length === 0) lines.push(chunk);
+      else current = chunk;
+    }
+    current = "";
+  };
+
+  for (const w of words) {
+    const parts = splitWordWithSoftBreaks(w);
+    for (let i = 0; i < parts.length; i++) {
+      // Only the first part of the word may require a leading space.
+      pushToken(parts[i], i === 0);
+    }
+  }
+  push();
+
+  return lines.length ? lines : [clean];
+}
+
+
 // Compute node positions and canvas size for SVG rendering.
 
 function layoutTreeForSvg(flat: FlatNode[]) {
@@ -262,26 +364,68 @@ function layoutTreeForSvg(flat: FlatNode[]) {
   flat.forEach((n) => byId.set(n.id, n));
   const roots = flat.filter((n) => n.parentId === null).map((n) => n.id);
 
-  const NODE_W = 300;
+  // Sizing policy:
+  // - Nodes shrink to fit their content, but never exceed MAX_NODE_W.
+  // - Long labels wrap and grow down, not wider than MAX_NODE_W.
+  const MIN_NODE_W = 120;
+  const MAX_NODE_W = 210;
+
+  const FONT_SIZE = 13;
+  const FONT_FAMILY =
+    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+  const FONT = `${FONT_SIZE}px ${FONT_FAMILY}`;
+
   const PADDING_X = 12;
   const PADDING_Y = 10;
   const LINE_H = 16;
   const MAX_LINES = 7;
-  const CHARS_PER_LINE = 32;
+
+  // Spacing between node "slots" (centers).
   const GAP_X = 54;
   const GAP_Y = 50;
 
+  const clampW = (w: number) => Math.max(MIN_NODE_W, Math.min(MAX_NODE_W, w));
+
   const linesById = new Map<number, string[]>();
+  const widthById = new Map<number, number>();
   const heightById = new Map<number, number>();
+
   for (const n of flat) {
-    let lines = wrapTextToLines(n.text, CHARS_PER_LINE);
-    if (lines.length > MAX_LINES) lines = [...lines.slice(0, MAX_LINES - 1), lines[MAX_LINES - 1] + " …"];
+    const clean = n.text.replace(/\s+/g, " ").trim();
+
+    // Desired width if rendered in one line.
+    const oneLineW = clampW(measureTextPx(clean, FONT) + PADDING_X * 2);
+
+    const w = oneLineW;
+    const innerW = Math.max(40, w - PADDING_X * 2);
+
+    let lines = wrapTextToLinesPx(clean, innerW, FONT);
+    if (lines.length > MAX_LINES) {
+      lines = [...lines.slice(0, MAX_LINES - 1), lines[MAX_LINES - 1] + " …"];
+    }
+
+    // If the single-line width would exceed MAX_NODE_W, we cap width and wrap.
+    const needsWrap = measureTextPx(clean, FONT) + PADDING_X * 2 > MAX_NODE_W;
+    const finalW = needsWrap ? MAX_NODE_W : w;
+
+    // If we capped width, re-wrap using the capped width (more accurate).
+    const finalInnerW = Math.max(40, finalW - PADDING_X * 2);
+    if (needsWrap) {
+      lines = wrapTextToLinesPx(clean, finalInnerW, FONT);
+      if (lines.length > MAX_LINES) {
+        lines = [...lines.slice(0, MAX_LINES - 1), lines[MAX_LINES - 1] + " …"];
+      }
+    }
+
     linesById.set(n.id, lines);
+    widthById.set(n.id, finalW);
     heightById.set(n.id, PADDING_Y * 2 + lines.length * LINE_H + 8);
   }
 
   const isLeaf = (id: number) => (byId.get(id)?.childrenIds.length ?? 0) === 0;
 
+  // Keep the current "triangle" geometry: leaves define horizontal ordering.
+  // We space node centers by MAX_NODE_W so variable widths never overlap.
   let leafCursor = 0;
   const leafX = new Map<number, number>();
   const assignLeaves = (id: number) => {
@@ -320,22 +464,24 @@ function layoutTreeForSvg(flat: FlatNode[]) {
     accY += maxHPerDepth[d] + GAP_Y;
   }
 
-  const pxX = (u: number) => 30 + u * (NODE_W + GAP_X);
+  const SLOT_W = MAX_NODE_W;
+  const pxX = (u: number) => 30 + u * (SLOT_W + GAP_X);
 
   let positioned: PositionedNode[] = flat.map((n) => {
     const cx = pxX(xUnit.get(n.id)!);
-    const x = cx - NODE_W / 2;
+    const w = widthById.get(n.id)!;
+    const x = cx - w / 2;
     const y = yTopByDepth[n.depth];
     const lines = linesById.get(n.id)!;
     const h = heightById.get(n.id)!;
-    return { ...n, x, y, w: NODE_W, h, lines };
+    return { ...n, x, y, w, h, lines };
   });
 
   const minX = Math.min(...positioned.map((p) => p.x));
   const minY = Math.min(...positioned.map((p) => p.y));
   const MARGIN = 20;
-const MIN_CANVAS_W = 900;
-const MIN_CANVAS_H = 600;
+  const MIN_CANVAS_W = 900;
+  const MIN_CANVAS_H = 600;
 
   const dx = minX < MARGIN ? MARGIN - minX : 0;
   const dy = minY < MARGIN ? MARGIN - minY : 0;
@@ -343,16 +489,11 @@ const MIN_CANVAS_H = 600;
   if (dx || dy) positioned = positioned.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
 
   // Center content horizontally within the canvas (X only).
-  // We keep at least MARGIN on the left; if there is extra space (e.g. due to MIN_CANVAS_W),
-  // distribute it evenly to left/right by shifting all nodes.
   const contentMinX = Math.min(...positioned.map((p) => p.x));
   const contentMaxX = Math.max(...positioned.map((p) => p.x + p.w));
   const contentWidth = contentMaxX - contentMinX;
 
-  // Canvas width is based on the larger of actual content width and the configured minimum.
-  // We include the existing single-side MARGIN in the returned width; centering uses the full width.
   const canvasWidth = Math.max(contentMaxX, MIN_CANVAS_W) + MARGIN;
-
   const desiredMinX = Math.max(MARGIN, (canvasWidth - contentWidth) / 2);
   const dxCenter = desiredMinX - contentMinX;
 
@@ -365,10 +506,9 @@ const MIN_CANVAS_H = 600;
     positioned,
     width: maxX + MARGIN,
     height: maxY + MARGIN,
-    consts: { NODE_W, PADDING_X, PADDING_Y, LINE_H },
+    consts: { PADDING_X, PADDING_Y, LINE_H, FONT_SIZE, FONT_FAMILY, MAX_NODE_W },
   };
 }
-
 // Clamp a number to the [lo, hi] range.
 
 function clamp(v: number, lo: number, hi: number) {
@@ -1068,23 +1208,42 @@ useEffect(() => {
 
                 {/* nodes */}
                 {layout.positioned.map((n) => {
-                  const textX = n.x + 12;
-                  const textY = n.y + 10 + 14;
+                  const padX = (layout.consts as any)?.PADDING_X ?? 12;
+                  const padY = (layout.consts as any)?.PADDING_Y ?? 10;
+                  const fontSize = (layout.consts as any)?.FONT_SIZE ?? 12;
+                  const lineH = (layout.consts as any)?.LINE_H ?? 16;
+                  const fontFamily = (layout.consts as any)?.FONT_FAMILY ?? "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+
+                  const textX = n.x + padX;
+                  const textY = n.y + padY + fontSize + 2;
+                  const isSingleLine = n.lines.length === 1;
+                  const singleLine = isSingleLine ? n.lines[0] ?? "" : "";
+                  // SVG "justify" via textLength/lengthAdjust stretches glyph spacing when there are too few spaces.
+                  // Enable it only for single-line strings with at least 3 words (>=2 spaces).
+                  const canJustify = isSingleLine && ((singleLine.match(/ /g)?.length ?? 0) >= 2);
+                  const shouldCenter = isSingleLine && !canJustify;
+                  const baseX = shouldCenter ? n.x + n.w / 2 : textX;
+                  const textAnchor = shouldCenter ? "middle" : "start";
+                  const availableW = Math.max(0, n.w - padX * 2);
+
 
                   return (
                     <g key={n.id} filter="url(#shadow)" pointerEvents="none">
                       <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={10} ry={10} fill="white" stroke="black" strokeWidth={1} />
-                      <text
-                        x={textX}
-                        y={textY}
-                        fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
-                        fontSize={12}
-                      >
-                        {n.lines.map((line, idx) => (
-                          <tspan key={idx} x={textX} dy={idx === 0 ? 0 : 16}>
-                            {line}
-                          </tspan>
-                        ))}
+                      <text x={baseX} y={textY} fontFamily={fontFamily} fontSize={fontSize} textAnchor={textAnchor}>
+                        {n.lines.map((line, idx) => {
+                          return (
+                            <tspan
+                              key={idx}
+                              x={baseX}
+                              dy={idx === 0 ? 0 : lineH}
+                              textLength={canJustify ? availableW : undefined}
+                              lengthAdjust={canJustify ? "spacing" : undefined}
+                            >
+                              {line}
+                            </tspan>
+                          );
+                        })}
                       </text>
                     </g>
                   );
