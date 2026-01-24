@@ -1,6 +1,46 @@
 // src/App.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+const WRAP_LS_KEY = "dtb.wrap.v1";
+const LANG_LS_KEY = "dtb.lang.v1";
+
+const loadWrap = (): boolean => {
+  try {
+    const raw = localStorage.getItem(WRAP_LS_KEY);
+    if (raw === null) return true; // default
+    return raw === "true";
+  } catch {
+    return true;
+  }
+};
+
+const loadLang = (): string => {
+  try {
+    const raw = localStorage.getItem(LANG_LS_KEY);
+    const v = (raw ?? "java").trim();
+    return v.length ? v : "java";
+  } catch {
+    return "java";
+  }
+};
+
+const persistWrap = (v: boolean) => {
+  try {
+    localStorage.setItem(WRAP_LS_KEY, String(v));
+  } catch (e) {
+    console.warn("Failed to persist wrap", e);
+  }
+};
+
+const persistLang = (v: string) => {
+  try {
+    localStorage.setItem(LANG_LS_KEY, v);
+  } catch (e) {
+    console.warn("Failed to persist lang", e);
+  }
+};
+
+
 type Node = {
   text: string;
   children: Node[];
@@ -577,8 +617,17 @@ export default function App() {
   };
 
   const [input, setInput] = useState(DEFAULT_INPUT);
-  const [wrap, setWrap] = useState(true);
-  const [lang, setLang] = useState("java");
+  const [wrap, setWrap] = useState<boolean>(() => loadWrap());
+  const [lang, setLang] = useState<string>(() => loadLang());
+
+
+  useEffect(() => {
+    persistWrap(wrap);
+  }, [wrap]);
+
+  useEffect(() => {
+    persistLang(lang);
+  }, [lang]);
 
   const [zoom, setZoom] = useState(1);
   const [panX, setPanX] = useState(0);
