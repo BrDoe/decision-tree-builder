@@ -78,11 +78,11 @@ const DEFAULT_INPUT = `Схема принятия решений
       History. Вернитесь к ранее созданным схемам
   ASCII
     Получите готовую ASCII-схему
-      Используйте опцию code, чтобы Jira корректно отображала схему
+      Используйте {code}, чтобы Jira корректно отображала схему
   Диаграмма
     Просмотрите визуальную диаграмму
       Масштабируйте и перемещайте
-      Экспортируйте диаграмму в PNG`;
+      Экспортируейте диаграмму в PNG`;
 
 // Count leading spaces in a string.
 
@@ -163,10 +163,7 @@ function renderAsciiTree(nodes: Node[]): string {
     if (root.children.length) {
       out.push("│");
       root.children.forEach((child, cidx) => {
-        const childIsLast = cidx === root.children.length - 1;
-        render(child, "", childIsLast);
-        // Add a spacer line between top-level branches to visually separate them.
-        if (!childIsLast) out.push("│");
+        render(child, "", cidx === root.children.length - 1);
       });
     }
 
