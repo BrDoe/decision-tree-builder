@@ -1425,16 +1425,19 @@ useEffect(() => {
 
         <button
           title="Очистить историю схем"
+          disabled={history.length === 0}
           onClick={() => {
-                  const ok = window.confirm("Очистить историю схем?");
-                  if (!ok) return;
-                  clearHistory();
-                  setIsHistoryOpen(false);
-                  setInput(DEFAULT_INPUT);
-                }}
+            if (history.length === 0) return;
+            const ok = window.confirm("Очистить историю схем?");
+            if (!ok) return;
+            clearHistory();
+            setIsHistoryOpen(false);
+            setInput(DEFAULT_INPUT);
+          }}
           style={{
             padding: "6px 12px",
-            cursor: "pointer",
+            cursor: history.length === 0 ? "not-allowed" : "pointer",
+            opacity: history.length === 0 ? 0.55 : 1,
             borderRadius: 8,
             border: "1px solid rgba(255,255,255,0.16)",
             background: "#262626",
