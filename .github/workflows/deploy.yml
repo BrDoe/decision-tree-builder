@@ -37,6 +37,8 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+          # Make the artifact name unique per workflow attempt to avoid duplicates on re-runs.
+          name: github-pages-${{ github.run_attempt }}
 
   deploy:
     needs: build
@@ -48,3 +50,5 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
