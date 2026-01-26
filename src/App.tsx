@@ -916,6 +916,9 @@ const saveGraphPng = async () => {
     <div
       style={{
         height: HEADER_HEIGHT,
+        minHeight: HEADER_HEIGHT,
+        maxHeight: HEADER_HEIGHT,
+        overflow: "hidden",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -931,6 +934,9 @@ const saveGraphPng = async () => {
     <div
       style={{
         height: HEADER_HEIGHT,
+        minHeight: HEADER_HEIGHT,
+        maxHeight: HEADER_HEIGHT,
+        overflow: "hidden",
         display: "grid",
         gridTemplateColumns: "1fr auto 1fr",
         alignItems: "center",
@@ -994,7 +1000,7 @@ useEffect(() => {
       <h2 style={{ margin: "0 0 8px" }}>Decision Tree Builder</h2>
 
       <div className="toolbar" style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }} title="Добавляет обёртку {code:...} для Jira">
+        <label style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap" }} title="Добавляет обёртку {code:...} для Jira">
           <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
           Оборачивать в {"{code}"}
         </label>
@@ -1123,7 +1129,7 @@ useEffect(() => {
           <Header3
             title="Диаграмма"
             center={
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", overflowX: "auto" }}>
                 <button title="Уменьшить масштаб" onClick={zoomOut} style={{ padding: "6px 10px", cursor: "pointer" }}>
                   −
                 </button>
