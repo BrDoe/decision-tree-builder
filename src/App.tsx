@@ -1134,7 +1134,7 @@ useEffect(() => {
                   −
                 </button>
 
-                <div title="Текущий масштаб" style={{ minWidth: 64, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+                <div title="Текущий масштаб" style={{ minWidth: 48, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
                   {Math.round(zoom * 100)}%
                 </div>
 
