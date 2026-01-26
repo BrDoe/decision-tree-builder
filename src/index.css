@@ -66,3 +66,35 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Decision Tree Builder responsive layout */
+
+.panels {
+  display: grid;
+  grid-template-columns: 1.35fr 1.15fr 2.2fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.panel {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  body {
+    display: block;
+    place-items: initial;
+    min-height: 100vh;
+  }
+
+  .panels {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Avoid tiny horizontal scroll caused by long content */
+  .app-shell {
+    overflow-x: hidden;
+  }
+}

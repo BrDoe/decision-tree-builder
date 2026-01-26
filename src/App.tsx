@@ -1,5 +1,6 @@
 // src/App.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import "./App.css";
 
 const WRAP_LS_KEY = "dtb.wrap.v1";
 const LANG_LS_KEY = "dtb.lang.v1";
@@ -596,6 +597,7 @@ async function exportSvgAsPng(
 export default function App() {
 
   //const CONTENT_HEIGHT = 660;
+  // Desktop content height; mobile override is applied via CSS variable.
   const CONTENT_HEIGHT = "clamp(520px, calc(100vh - 200px), 920px)";
   //const CONTENT_HEIGHT = "calc(100vh - 200px)"; 
   const HEADER_HEIGHT = 36;
@@ -605,7 +607,8 @@ export default function App() {
 
   const COLUMN_STYLE: React.CSSProperties = {
     display: "grid",
-    gridTemplateRows: `${HEADER_HEIGHT}px ${CONTENT_HEIGHT}px ${FOOTER_HEIGHT}px`,
+    // Height is controlled via CSS variable so we can override it on mobile.
+    gridTemplateRows: `${HEADER_HEIGHT}px var(--content-h) ${FOOTER_HEIGHT}px`,
     rowGap: ROW_GAP,
     minWidth: 0,
   };
@@ -976,18 +979,21 @@ useEffect(() => {
 
   return (
 <div
+  className="app-shell"
   style={{
     fontFamily: "system-ui, sans-serif",
     padding: 8,
     width: "min(2200px, 100%)",
     margin: "0 auto",
-    overflow: "hidden",
+    overflowX: "hidden",
     boxSizing: "border-box",
+    // @ts-expect-error CSS custom property
+    "--content-h": CONTENT_HEIGHT,
   }}
 >
       <h2 style={{ margin: "0 0 8px" }}>Decision Tree Builder</h2>
 
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+      <div className="toolbar" style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
         <label style={{ display: "flex", gap: 8, alignItems: "center" }} title="Добавляет обёртку {code:...} для Jira">
           <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
           Оборачивать в {"{code}"}
@@ -1004,9 +1010,9 @@ useEffect(() => {
         </label>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1.15fr 2.2fr", gap: 12, alignItems: "start" }}>
+      <div className="panels">
         {/* INPUT */}
-        <div style={COLUMN_STYLE}>
+        <div className="panel" style={COLUMN_STYLE}>
           <Header
             title="Действия"
             right={
@@ -1050,7 +1056,7 @@ useEffect(() => {
             onKeyDown={onInputKeyDown}
             style={{
               width: "100%",
-              height: CONTENT_HEIGHT,
+              height: "var(--content-h)",
               fontFamily:
                 "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
               fontSize: 13,
@@ -1069,7 +1075,7 @@ useEffect(() => {
         </div>
 
         {/* JIRA */}
-        <div style={COLUMN_STYLE}>
+        <div className="panel" style={COLUMN_STYLE}>
           <Header
             title="ASCII"
             right={
@@ -1086,7 +1092,7 @@ useEffect(() => {
           <pre
             style={{
               width: "100%",
-              height: CONTENT_HEIGHT,
+              height: "var(--content-h)",
               overflowY: "auto",
               overflowX: "hidden",
               background: "#fafafa",
@@ -1113,7 +1119,7 @@ useEffect(() => {
         </div>
 
         {/* GRAPHIC */}
-        <div style={COLUMN_STYLE}>
+        <div className="panel" style={COLUMN_STYLE}>
           <Header3
             title="Диаграмма"
             center={
@@ -1167,7 +1173,7 @@ useEffect(() => {
               border: "1px solid #ccc",
               borderRadius: 8,
               background: "#fff",
-              height: CONTENT_HEIGHT,
+              height: "var(--content-h)",
               width: "100%",
               overflow: "hidden",
               position: "relative",
